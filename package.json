@@ -61,7 +61,7 @@
     "@jest/globals": "^30.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.10.7",
-    "@ycforge/ydb-orm": "file:../ydb-orm",
+    "@ycforge/ydb-orm": "0.1.1-beta.1",
     "dotenv": "^17.4.2",
     "jest": "^30.0.0",
     "ts-jest": "^29.2.5",
