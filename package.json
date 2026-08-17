@@ -50,9 +50,7 @@
     "prepublishOnly": "yarn build",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPatterns='integration\\.spec\\.ts$'",
-    "test:cov": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
-    "lint": "eslint \"src/**/*.ts\" --fix",
-    "format": "prettier --write \"src/**/*.ts\""
+    "test:cov": "NODE_OPTIONS=--experimental-vm-modules jest --coverage"
   },
   "peerDependencies": {
     "@ycforge/ydb-orm": ">=0.1.0"
