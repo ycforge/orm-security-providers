@@ -1,11 +1,11 @@
 import type {
   YdbEncryptionProvider,
   YdbEncryptionContext,
-} from '@ycforge/ydb-orm';
-import { IamTokenManager } from './iam-token-manager.js';
-import type { KmsAuthMethod, KmsAuthOptions } from './iam-token-manager.js';
+} from "@ycforge/ydb-orm";
+import { IamTokenManager } from "./iam-token-manager.js";
+import type { KmsAuthMethod, KmsAuthOptions } from "./iam-token-manager.js";
 
-const KMS_API_BASE = 'https://kms.yandex';
+const KMS_API_BASE = "https://kms.yandex";
 
 interface KmsEncryptResponse {
   keyId: string;
@@ -55,7 +55,7 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
 
   constructor(options: KmsEncryptionProviderOptions) {
     if (!options.keyId) {
-      throw new Error('keyId is required');
+      throw new Error("keyId is required");
     }
 
     this.#keyId = options.keyId;
@@ -74,18 +74,18 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
     const token = await this.#tokenManager.getToken();
 
     const body: Record<string, string> = {
-      plaintext: Buffer.from(plaintext, 'utf8').toString('base64'),
+      plaintext: Buffer.from(plaintext, "utf8").toString("base64"),
     };
 
     if (aad) {
-      body.aadContext = Buffer.from(aad, 'utf8').toString('base64');
+      body.aadContext = Buffer.from(aad, "utf8").toString("base64");
     }
 
     const url = `${this.#apiEndpoint}/kms/v1/keys/${this.#keyId}:encrypt`;
     const response = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
@@ -93,9 +93,7 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(
-        `KMS encrypt failed: ${response.status} ${text}`,
-      );
+      throw new Error(`KMS encrypt failed: ${response.status} ${text}`);
     }
 
     const data = (await response.json()) as KmsEncryptResponse;
@@ -114,14 +112,14 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
     };
 
     if (aad) {
-      body.aadContext = Buffer.from(aad, 'utf8').toString('base64');
+      body.aadContext = Buffer.from(aad, "utf8").toString("base64");
     }
 
     const url = `${this.#apiEndpoint}/kms/v1/keys/${this.#keyId}:decrypt`;
     const response = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
@@ -129,12 +127,10 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(
-        `KMS decrypt failed: ${response.status} ${text}`,
-      );
+      throw new Error(`KMS decrypt failed: ${response.status} ${text}`);
     }
 
     const data = (await response.json()) as KmsDecryptResponse;
-    return Buffer.from(data.plaintext, 'base64').toString('utf8');
+    return Buffer.from(data.plaintext, "base64").toString("utf8");
   }
 }

@@ -1,4 +1,4 @@
 export {
   KmsBlindIndexProvider,
   type KmsBlindIndexProviderOptions,
-} from './hmac-blind-index-provider.js';
+} from "./hmac-blind-index-provider.js";

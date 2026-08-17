@@ -1,8 +1,8 @@
-import { createHmac } from 'node:crypto';
+import { createHmac } from "node:crypto";
 import type {
   YdbBlindIndexProvider,
   YdbEncryptionContext,
-} from '@ycforge/ydb-orm';
+} from "@ycforge/ydb-orm";
 
 export interface KmsBlindIndexProviderOptions {
   /**
@@ -32,21 +32,21 @@ export class KmsBlindIndexProvider implements YdbBlindIndexProvider {
 
   constructor(options: KmsBlindIndexProviderOptions) {
     if (!options.blindIndexKey) {
-      throw new Error('blindIndexKey is required');
+      throw new Error("blindIndexKey is required");
     }
 
-    this.#key = Buffer.from(options.blindIndexKey, 'base64');
+    this.#key = Buffer.from(options.blindIndexKey, "base64");
 
     if (this.#key.length < 32) {
       throw new Error(
-        'blindIndexKey must be at least 32 bytes (256 bits) when decoded',
+        "blindIndexKey must be at least 32 bytes (256 bits) when decoded",
       );
     }
   }
 
   hash(plaintext: string, _context: YdbEncryptionContext): Promise<string> {
     return Promise.resolve(
-      createHmac('sha256', this.#key).update(plaintext).digest('base64'),
+      createHmac("sha256", this.#key).update(plaintext).digest("base64"),
     );
   }
 }

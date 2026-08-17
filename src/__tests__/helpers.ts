@@ -1,6 +1,6 @@
-import type { KmsAuthMethod } from '../yandex-kms/iam-token-manager.js';
-import type { KmsEncryptionProviderOptions } from '../yandex-kms/kms-encryption-provider.js';
-import type { KmsBlindIndexProviderOptions } from '../hmac-bi/hmac-blind-index-provider.js';
+import type { KmsAuthMethod } from "../yandex-kms/iam-token-manager.js";
+import type { KmsEncryptionProviderOptions } from "../yandex-kms/kms-encryption-provider.js";
+import type { KmsBlindIndexProviderOptions } from "../hmac-bi/hmac-blind-index-provider.js";
 
 export interface KmsTestConfig {
   encryption: KmsEncryptionProviderOptions;
@@ -25,14 +25,14 @@ export function loadKmsTestConfigFromEnv(): KmsTestConfig | null {
   const authOptions: Record<string, string> = {};
 
   switch (authType) {
-    case 'iam_token':
-      authOptions.iam_token = process.env.KMS_IAM_TOKEN ?? '';
+    case "iam_token":
+      authOptions.iam_token = process.env.KMS_IAM_TOKEN ?? "";
       break;
-    case 'auth_key':
+    case "auth_key":
       authOptions.authorized_key_path =
-        process.env.KMS_AUTHORIZED_KEY_PATH ?? '';
+        process.env.KMS_AUTHORIZED_KEY_PATH ?? "";
       break;
-    case 'meta':
+    case "meta":
       break;
     default:
       return null;
