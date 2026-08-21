@@ -7,7 +7,7 @@
  * Run:
  *   KMS_BLIND_INDEX_KEY=<base64> npx tsx examples/blind-index.ts
  */
-import { KmsBlindIndexProvider } from '../src/kms-blind-index-provider.js';
+import { KmsBlindIndexProvider } from '../src/hmac-bi/hmac-blind-index-provider.js';
 import type { YdbEncryptionContext } from '@ycforge/ydb-orm';
 
 const provider = new KmsBlindIndexProvider({

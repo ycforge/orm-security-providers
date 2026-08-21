@@ -4,7 +4,7 @@
  * When encrypted with AAD, decryption with a different AAD will fail.
  * Use @YdbSecurityAAD fields in ydb-orm entities.
  */
-import { KmsEncryptionProvider } from '../src/kms-encryption-provider.js';
+import { KmsEncryptionProvider } from '../src/yandex-kms/kms-encryption-provider.js';
 import type { YdbEncryptionContext } from '@ycforge/ydb-orm';
 
 const provider = new KmsEncryptionProvider({
@@ -27,6 +27,7 @@ const wrongAad = 'orgId=org-999';
 
 // encrypt with AAD
 const ciphertext = await provider.encrypt(plaintext, correctAad, context);
+console.log('ciphertext bytes:', ciphertext.length); // Uint8Array
 
 // decrypt with correct AAD — works
 const decrypted = await provider.decrypt(ciphertext, correctAad, context);

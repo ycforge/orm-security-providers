@@ -10,12 +10,14 @@ const KMS_API_BASE = "https://kms.yandex";
 interface KmsEncryptResponse {
   keyId: string;
   versionId: string;
+  /** Ciphertext в base64 (формат Yandex KMS REST API). */
   ciphertext: string;
 }
 
 interface KmsDecryptResponse {
   keyId: string;
   versionId: string;
+  /** Plaintext в base64 (формат Yandex KMS REST API). */
   plaintext: string;
 }
 
@@ -37,6 +39,10 @@ export interface KmsEncryptionProviderOptions {
  * и дешифрования полей сущностей. AAD (Additional Authenticated Data)
  * передаётся как aadContext — привязывает ciphertext к значениям
  * @YdbSecurityAAD-полей.
+ *
+ * Контракт ORM (v0.2+): наружу provider отдаёт и принимает raw ciphertext
+ * как Uint8Array — он хранится в YDB-колонке `Bytes` без перекодирований.
+ * Base64 появляется только на границе с KMS REST API.
  *
  * Подключается через опции модуля:
  *
@@ -70,7 +76,7 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
     plaintext: string,
     aad: string,
     _context: YdbEncryptionContext,
-  ): Promise<string> {
+  ): Promise<Uint8Array> {
     const token = await this.#tokenManager.getToken();
 
     const body: Record<string, string> = {
@@ -97,18 +103,18 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
     }
 
     const data = (await response.json()) as KmsEncryptResponse;
-    return data.ciphertext;
+    return new Uint8Array(Buffer.from(data.ciphertext, "base64"));
   }
 
   async decrypt(
-    ciphertext: string,
+    ciphertext: Uint8Array,
     aad: string,
     _context: YdbEncryptionContext,
   ): Promise<string> {
     const token = await this.#tokenManager.getToken();
 
     const body: Record<string, string> = {
-      ciphertext,
+      ciphertext: Buffer.from(ciphertext).toString("base64"),
     };
 
     if (aad) {

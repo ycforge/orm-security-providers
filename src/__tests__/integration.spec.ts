@@ -40,7 +40,8 @@ describe("Integration: Yandex Cloud KMS (real API)", () => {
     const plaintext = "integration-test@example.com";
 
     const ciphertext = await enc.encrypt(plaintext, "", context);
-    expect(ciphertext).not.toBe(plaintext);
+    expect(ciphertext).toBeInstanceOf(Uint8Array);
+    expect(Buffer.from(ciphertext).toString("utf8")).not.toBe(plaintext);
 
     const decrypted = await enc.decrypt(ciphertext, "", context);
     expect(decrypted).toBe(plaintext);
