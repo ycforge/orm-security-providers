@@ -12,10 +12,10 @@
 
 ## Структура
 
-- `src/yandex-kms/kms-encryption-provider.ts` — `KmsEncryptionProvider` (encrypt/decrypt через `https://kms.yandex/kms/v1/keys/{id}:encrypt|decrypt`).
+- `src/yandex-kms/kms-encryption-provider.ts` — `KmsEncryptionProvider` (encrypt/decrypt через `https://kms.yandex/kms/v1/keys/{id}:encrypt|decrypt`). Контракт ORM v0.2+: наружу raw `Uint8Array`, base64 только на границе KMS REST API.
 - `src/yandex-kms/iam-token-manager.ts` — `IamTokenManager` (3 режима: `meta`, `auth_key`, `iam_token`).
 - `src/hmac-bi/hmac-blind-index-provider.ts` — `KmsBlindIndexProvider` (HMAC-SHA256, ключ хранится в памяти).
-- `src/__tests__/` — Jest 30, ESM, `--experimental-vm-modules`. `setup.ts` загружает `.env` через `dotenv`.
+- `src/__tests__/` — Jest 30, ESM, `--experimental-vm-modules`. `setup.ts` загружает `.env` через `dotenv`. `orm-pipeline.spec.ts` гоняет реальный интерфейс `@ycforge/ydb-orm` (configureEntities + декораторы) поверх in-memory YDB-эмуляции и мока KMS.
 
 ## Команды
 
@@ -36,7 +36,8 @@
 - **AAD** — передаётся как `aadContext` (base64). Привязывает ciphertext к значениям `@YdbSecurityAAD`-полей.
 - **Blind index** — HMAC-SHA256 с ключом из `KMS_BLIND_INDEX_KEY`. `context` в `hash()` игнорируется.
 - **Секреты** (`authorized_key.json`, `.env`, `KMS_BLIND_INDEX_KEY`) не коммитить и не выводить.
-- **Peer dependency** — `@ycforge/ydb-orm >=0.1.0`. Для локальной разработки `devDependencies` ссылаются на `file:../ydb-orm`.
+- **Peer dependency** — `@ycforge/ydb-orm >=0.2.0 <1` (контракт `Uint8Array`). Для локальной разработки devDependency — опубликованная `0.2.0-beta.0`.
+- **Контракт шифрования** — `encrypt(): Promise<Uint8Array>`, `decrypt(ciphertext: Uint8Array): Promise<string>`; шифротекст хранится в YDB-колонке `Bytes`. Не возвращать base64/string наружу и не добавлять legacy-совместимость со старым string API.
 
 ## Авторизация
 

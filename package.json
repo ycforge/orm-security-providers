@@ -1,6 +1,6 @@
 {
   "name": "@ycforge/orm-security-providers",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Encryption & blind-index providers for @ycforge/ydb-orm (Yandex Cloud KMS, HMAC-SHA256)",
   "keywords": [
     "yandex-cloud",
@@ -55,14 +55,16 @@
     "format": "prettier --write \"src/**/*.ts\""
   },
   "peerDependencies": {
-    "@ycforge/ydb-orm": ">=0.1.0"
+    "@ycforge/ydb-orm": ">=0.2.0 <1"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
     "@jest/globals": "^30.0.0",
+    "@nestjs/common": "^10",
+    "@nestjs/core": "^10",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.10.7",
-    "@ycforge/ydb-orm": "0.1.1-beta.1",
+    "@ycforge/ydb-orm": "0.2.0-beta.0",
     "dotenv": "^17.4.2",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
@@ -70,6 +72,8 @@
     "globals": "^16.0.0",
     "jest": "^30.0.0",
     "prettier": "^3.4.2",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "^7",
     "ts-jest": "^29.2.5",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
@@ -85,6 +89,7 @@
       ".ts"
     ],
     "moduleNameMapper": {
+      "^@ycforge/ydb-orm$": "<rootDir>/node_modules/@ycforge/ydb-orm/dist/index.js",
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "transform": {

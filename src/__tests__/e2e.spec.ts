@@ -1,4 +1,5 @@
 import { jest } from "@jest/globals";
+import { randomBytes } from "node:crypto";
 import { KmsEncryptionProvider } from "../yandex-kms/kms-encryption-provider.js";
 import { KmsBlindIndexProvider } from "../hmac-bi/hmac-blind-index-provider.js";
 import type { YdbEncryptionContext } from "@ycforge/ydb-orm";
@@ -10,9 +11,11 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-/** Фабрика mock-провайдера KMS с подменённым fetch. */
+/** Фабрика mock-провайдера KMS с подменённым fetch (base64 — только внутри адаптера). */
 function createMockKmsProviders() {
   const keyId = "test-key-id";
+  // base64(ciphertext) → base64(plaintext)
+  const vault = new Map<string, string>();
 
   const encProvider = new KmsEncryptionProvider({
     keyId,
@@ -24,44 +27,37 @@ function createMockKmsProviders() {
     blindIndexKey: Buffer.alloc(32).toString("base64"),
   });
 
-  const mockFetch = jest.fn((url: string, init: any) => {
-    const body = JSON.parse(init.body);
-
-    if (String(url).includes(":encrypt")) {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            keyId,
-            versionId: "v1",
-            ciphertext: `kms:${body.plaintext}`,
-          }),
-        text: () => Promise.resolve(""),
-      } as Response);
-    }
-
-    if (String(url).includes(":decrypt")) {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            keyId,
-            versionId: "v1",
-            plaintext: body.ciphertext.replace(/^kms:/, ""),
-          }),
-        text: () => Promise.resolve(""),
-      } as Response);
-    }
-
-    return Promise.resolve({
-      ok: false,
-      status: 404,
-      json: () => Promise.resolve({}),
-      text: () => Promise.resolve("Not found"),
+  const kmsResponse = (data: unknown, status = 200): Promise<Response> =>
+    Promise.resolve({
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(data),
+      text: () => Promise.resolve(JSON.stringify(data)),
     } as Response);
-  });
+
+  const mockFetch = jest.fn(
+    (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(init!.body as string);
+      const urlText =
+        typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+
+      if (urlText.includes(":encrypt")) {
+        const ciphertext = randomBytes(48).toString("base64");
+        vault.set(ciphertext, body.plaintext);
+        return kmsResponse({ keyId, versionId: "v1", ciphertext });
+      }
+
+      if (urlText.includes(":decrypt")) {
+        return kmsResponse({
+          keyId,
+          versionId: "v1",
+          plaintext: vault.get(body.ciphertext)!,
+        });
+      }
+
+      return kmsResponse({}, 404);
+    },
+  );
 
   return { encProvider, biProvider, mockFetch };
 }
@@ -77,12 +73,18 @@ const context: YdbEncryptionContext = {
 describe("E2E: KMS encrypt → decrypt roundtrip (mocked)", () => {
   it("full cycle: encrypt → decrypt returns original plaintext", async () => {
     const { encProvider, mockFetch } = createMockKmsProviders();
-    globalThis.fetch = mockFetch as any;
+    globalThis.fetch = mockFetch;
 
     const plaintext = "user@example.com";
     const aad = "organization=Acme Corp";
 
-    const ciphertext = await encProvider.encrypt(plaintext, aad, context);
+    const ciphertext: Uint8Array = await encProvider.encrypt(
+      plaintext,
+      aad,
+      context,
+    );
+    expect(ciphertext).toBeInstanceOf(Uint8Array);
+
     const decrypted = await encProvider.decrypt(ciphertext, aad, context);
 
     expect(decrypted).toBe(plaintext);
@@ -90,7 +92,7 @@ describe("E2E: KMS encrypt → decrypt roundtrip (mocked)", () => {
 
   it("full cycle: encrypt → blind index → search", async () => {
     const { encProvider, biProvider, mockFetch } = createMockKmsProviders();
-    globalThis.fetch = mockFetch as any;
+    globalThis.fetch = mockFetch;
 
     const plaintext = "search@example.com";
     const aad = "organization=Acme Corp";
@@ -98,7 +100,7 @@ describe("E2E: KMS encrypt → decrypt roundtrip (mocked)", () => {
     const ciphertext = await encProvider.encrypt(plaintext, aad, context);
     const blindIndex = await biProvider.hash(plaintext, context);
 
-    expect(ciphertext).not.toBe(plaintext);
+    expect(ciphertext).not.toBeNull();
     expect(blindIndex).not.toBe(plaintext);
 
     const decrypted = await encProvider.decrypt(ciphertext, aad, context);
@@ -108,21 +110,34 @@ describe("E2E: KMS encrypt → decrypt roundtrip (mocked)", () => {
   it("different AAD produces different ciphertext", async () => {
     const { encProvider } = createMockKmsProviders();
 
-    // Override mock to include AAD in ciphertext
-    globalThis.fetch = jest.fn((_url: string, init: any) => {
-      const body = JSON.parse(init.body);
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            keyId: "test-key-id",
-            versionId: "v1",
-            ciphertext: `kms:${body.plaintext}:${body.aadContext || ""}`,
-          }),
-        text: () => Promise.resolve(""),
-      } as Response);
-    }) as any;
+    // Override mock: ciphertext зависит от AAD
+    const vault = new Map<string, string>();
+    globalThis.fetch = jest.fn(
+      (_url: string | URL | Request, init?: RequestInit) => {
+        const body = JSON.parse(init!.body as string);
+        const aadSeed = Buffer.from(body.aadContext ?? "", "base64");
+        const ciphertext = Buffer.from(
+          Array.from(
+            { length: 48 },
+            (_, i) =>
+              (i * 53 + 7 + (aadSeed[i % Math.max(aadSeed.length, 1)] ?? 0)) %
+              256,
+          ),
+        ).toString("base64");
+        vault.set(ciphertext, body.plaintext);
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              keyId: "test-key-id",
+              versionId: "v1",
+              ciphertext,
+            }),
+          text: () => Promise.resolve(""),
+        } as Response);
+      },
+    );
 
     const c1 = await encProvider.encrypt("same@email.com", "org=Acme", context);
     const c2 = await encProvider.encrypt(
@@ -131,12 +146,12 @@ describe("E2E: KMS encrypt → decrypt roundtrip (mocked)", () => {
       context,
     );
 
-    expect(c1).not.toBe(c2);
+    expect(Buffer.compare(Buffer.from(c1), Buffer.from(c2))).not.toBe(0);
   });
 
   it("handles multiple fields with different contexts", async () => {
     const { encProvider, mockFetch } = createMockKmsProviders();
-    globalThis.fetch = mockFetch as any;
+    globalThis.fetch = mockFetch;
 
     const emailCtx: YdbEncryptionContext = {
       entityName: "UserEntity",
@@ -187,8 +202,8 @@ describe("E2E: KMS encrypt → decrypt roundtrip (mocked)", () => {
       "KMS encrypt failed: 400",
     );
 
-    await expect(encProvider.decrypt("data", "", context)).rejects.toThrow(
-      "KMS decrypt failed: 400",
-    );
+    await expect(
+      encProvider.decrypt(new Uint8Array([1]), "", context),
+    ).rejects.toThrow("KMS decrypt failed: 400");
   });
 });

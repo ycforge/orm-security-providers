@@ -4,7 +4,7 @@
 import {
   KmsEncryptionProvider,
   type KmsEncryptionProviderOptions,
-} from '../src/kms-encryption-provider.js';
+} from '../src/yandex-kms/kms-encryption-provider.js';
 
 // ── 1. Service-account key (recommended for local / CI) ──────────
 const authKey: KmsEncryptionProviderOptions = {
