@@ -551,6 +551,69 @@ describe("ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)", () =
     expect(found!.notes).toBe("v2");
   });
 
+  it("partial updateBy(): untouched encrypted fields keep ciphertext and blind index", async () => {
+    const user = new PipelineUserEntity();
+    user.email = "partial@example.com";
+    user.notes = "notes-v1";
+    user.plain = "plain-v1";
+
+    await PipelineUserEntity.save(user);
+
+    const before = db
+      .rows("kms_pipeline_users")
+      .find((r) => r.uuid === user.uuid)!;
+    const emailCtBefore = Buffer.from(before.email);
+    const emailBiBefore = before.email_bi;
+
+    // Меняем только notes — email не должен перешифровываться
+    const updated = await PipelineUserEntity.updateBy(
+      { uuid: user.uuid },
+      { notes: "notes-v2" },
+    );
+    expect(updated).toBe(1);
+
+    const after = db
+      .rows("kms_pipeline_users")
+      .find((r) => r.uuid === user.uuid)!;
+
+    expect(Buffer.compare(Buffer.from(after.email), emailCtBefore)).toBe(0);
+    expect(after.email_bi).toBe(emailBiBefore);
+    expect(after.plain).toBe("plain-v1");
+    // notes объявлен с blindIndex: false → bi-колонки нет, но шифротекст обновлён
+    expect(after.notes_bi).toBeUndefined();
+    const decryptedNotes = await enc.decrypt(
+      after.notes,
+      `uuid=${user.uuid}`,
+      {} as any,
+    );
+    expect(decryptedNotes).toBe("notes-v2");
+
+    const found = await PipelineUserEntity.find({ uuid: user.uuid });
+    expect(found!.email).toBe("partial@example.com");
+    expect(found!.notes).toBe("notes-v2");
+  });
+
+  it("corrupted ciphertext fails decryption (KMS rejects)", async () => {
+    const user = new PipelineUserEntity();
+    user.email = "victim@example.com";
+    user.notes = "";
+    user.plain = "";
+
+    await PipelineUserEntity.save(user);
+
+    const stored = db
+      .rows("kms_pipeline_users")
+      .find((r) => r.uuid === user.uuid)!;
+
+    // Побитая порча шифротекста → KMS возвращает ошибку, ORM не отдаёт мусор
+    const corrupted = new Uint8Array(stored.email);
+    corrupted[0] ^= 0xff;
+
+    await expect(
+      enc.decrypt(corrupted, `uuid=${user.uuid}`, {} as any),
+    ).rejects.toThrow(/KMS decrypt failed/);
+  });
+
   it("roundtrip keeps binary-safe ciphertext (Uint8Array in → Uint8Array out)", async () => {
     const user = new PipelineUserEntity();
     user.email = "bin@example.com";

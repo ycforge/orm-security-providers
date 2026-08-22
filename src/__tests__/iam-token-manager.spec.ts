@@ -85,6 +85,53 @@ describe("IamTokenManager", () => {
         "iam_token is required for iam_token authentication",
       );
     });
+
+    it("does not fabricate an expiry: token is served as-is without refresh", async () => {
+      globalThis.fetch = jest.fn() as any;
+
+      const manager = new IamTokenManager("iam_token", {
+        iam_token: "static-token",
+      });
+
+      // Сколько бы вызовов ни было — токен отдаётся как есть, fetch не дёргается
+      for (let i = 0; i < 5; i++) {
+        await expect(manager.getToken()).resolves.toBe("static-token");
+      }
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it("accepts a future iam_token_expires_at", async () => {
+      globalThis.fetch = jest.fn() as any;
+
+      const manager = new IamTokenManager("iam_token", {
+        iam_token: "fresh-token",
+        iam_token_expires_at: new Date(Date.now() + 3600_000),
+      });
+
+      await expect(manager.getToken()).resolves.toBe("fresh-token");
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it("rejects an expired iam_token instead of sending a dead token", async () => {
+      const manager = new IamTokenManager("iam_token", {
+        iam_token: "stale-token",
+        iam_token_expires_at: new Date(Date.now() - 1000),
+      });
+
+      await expect(manager.getToken()).rejects.toThrow(
+        /expired according to iam_token_expires_at/,
+      );
+    });
+
+    it("throws at construction on unparseable iam_token_expires_at", () => {
+      expect(
+        () =>
+          new IamTokenManager("iam_token", {
+            iam_token: "t",
+            iam_token_expires_at: "not-a-date",
+          }),
+      ).toThrow("iam_token_expires_at must be a valid date");
+    });
   });
 
   describe("meta auth", () => {
@@ -240,6 +287,23 @@ describe("IamTokenManager", () => {
             authorized_key_path: "/path/to/bad.json",
           }),
       ).toThrow("Invalid authorized_key.json");
+    });
+
+    it("throws at construction when private_key is not parseable", () => {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          id: "key-id-123",
+          service_account_id: "sa-id-456",
+          private_key: "not-a-valid-pem-key",
+        }),
+      );
+
+      expect(
+        () =>
+          new IamTokenManager("auth_key", {
+            authorized_key_path: "/path/to/key.json",
+          }),
+      ).toThrow(/private_key is not a parseable key/);
     });
 
     it("throws on IAM token exchange failure", async () => {

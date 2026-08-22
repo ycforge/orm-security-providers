@@ -55,7 +55,7 @@
     "format": "prettier --write \"src/**/*.ts\""
   },
   "peerDependencies": {
-    "@ycforge/ydb-orm": ">=0.2.0 <1"
+    "@ycforge/ydb-orm": ">=0.2.0-beta.0 <0.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

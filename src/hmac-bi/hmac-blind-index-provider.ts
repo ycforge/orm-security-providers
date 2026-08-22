@@ -6,12 +6,50 @@ import type {
 
 export interface KmsBlindIndexProviderOptions {
   /**
-   * Ключ для HMAC-SHA256 (base64-encoded, минимум 32 байта).
+   * Ключ для HMAC-SHA256 (canonical padded Base64, минимум 32 байта
+   * после декодирования).
+   *
+   * Строка строго валидируется: недопустимые символы, некорректный
+   * паддинг и не-canonical хвостовые биты отвергаются (например,
+   * вывод `openssl rand -base64 32` подходит, а «похожие на base64»
+   * произвольные строки — нет).
    *
    * Yandex KMS не предоставляет нативной хеш-функции, поэтому для
    * blind index используется HMAC-SHA256 с отдельным ключом.
    */
   blindIndexKey: string;
+}
+
+const BASE64_ALPHABET_RE = /^[A-Za-z0-9+/]*={0,2}$/;
+
+/**
+ * Строгое декодирование Base64: алфавит, корректный паддинг и
+ * каноничность (перекодирование обязано воспроизвести вход 1:1 —
+ * отсекает «мусорные» хвостовые биты и лишний/неправильный паддинг,
+ * которые lenient-декодер Node молча игнорирует).
+ *
+ * Пробелы по краям допускаются (удобно для значений из env).
+ */
+function decodeCanonicalBase64(input: string): Buffer {
+  const normalized = input.trim();
+
+  if (
+    !BASE64_ALPHABET_RE.test(normalized) ||
+    normalized.length % 4 === 1 // длина, невозможная для валидного Base64
+  ) {
+    throw new Error(
+      "blindIndexKey must be a valid canonical Base64 string (as produced by e.g. `openssl rand -base64 32`)",
+    );
+  }
+
+  const decoded = Buffer.from(normalized, "base64");
+  if (decoded.toString("base64") !== normalized) {
+    throw new Error(
+      "blindIndexKey must be a valid canonical Base64 string (as produced by e.g. `openssl rand -base64 32`)",
+    );
+  }
+
+  return decoded;
 }
 
 /**
@@ -35,7 +73,7 @@ export class KmsBlindIndexProvider implements YdbBlindIndexProvider {
       throw new Error("blindIndexKey is required");
     }
 
-    this.#key = Buffer.from(options.blindIndexKey, "base64");
+    this.#key = decodeCanonicalBase64(options.blindIndexKey);
 
     if (this.#key.length < 32) {
       throw new Error(

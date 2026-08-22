@@ -36,7 +36,7 @@
 - **AAD** — передаётся как `aadContext` (base64). Привязывает ciphertext к значениям `@YdbSecurityAAD`-полей.
 - **Blind index** — HMAC-SHA256 с ключом из `KMS_BLIND_INDEX_KEY`. `context` в `hash()` игнорируется.
 - **Секреты** (`authorized_key.json`, `.env`, `KMS_BLIND_INDEX_KEY`) не коммитить и не выводить.
-- **Peer dependency** — `@ycforge/ydb-orm >=0.2.0 <1` (контракт `Uint8Array`). Для локальной разработки devDependency — опубликованная `0.2.0-beta.0`.
+- **Peer dependency** — `@ycforge/ydb-orm >=0.2.0-beta.0 <0.3.0` (контракт `Uint8Array`; нижняя граница с `-beta.0`, чтобы semver пропускал опубликованную prerelease-версию 0.2.x). Для локальной разработки devDependency — опубликованная `0.2.0-beta.0`.
 - **Контракт шифрования** — `encrypt(): Promise<Uint8Array>`, `decrypt(ciphertext: Uint8Array): Promise<string>`; шифротекст хранится в YDB-колонке `Bytes`. Не возвращать base64/string наружу и не добавлять legacy-совместимость со старым string API.
 
 ## Авторизация
@@ -45,7 +45,7 @@
 |-------|----------|-------|
 | `meta` | Метаданные VM (только внутри Yandex Cloud) | — |
 | `auth_key` | JWT сервисного аккаунта → IAM-токен | `authorized_key_path` |
-| `iam_token` | Готовый IAM-токен (без обновления) | `iam_token` |
+| `iam_token` | Готовый IAM-токен (без обновления; срок не выдумывается — валидность определяет сервер, опционально `iam_token_expires_at`) | `iam_token`, `iam_token_expires_at?` |
 
 Для `auth_key` нужны права `kms.keys.encrypterDecrypter` на ключ.
 

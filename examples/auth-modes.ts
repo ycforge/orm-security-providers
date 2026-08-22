@@ -23,10 +23,18 @@ const meta: KmsEncryptionProviderOptions = {
 };
 
 // ── 3. Static IAM token (quick test) ─────────────────────────────
+// Non-refreshing: the token is served as-is and the server decides
+// validity. Optionally declare its expiry — after that moment
+// getToken() throws instead of sending a dead token.
 const iamToken: KmsEncryptionProviderOptions = {
   keyId: process.env.KMS_KEY_ID!,
   auth_type: 'iam_token',
-  authOptions: { iam_token: process.env.KMS_IAM_TOKEN! },
+  authOptions: {
+    iam_token: process.env.KMS_IAM_TOKEN!,
+    ...(process.env.KMS_IAM_TOKEN_EXPIRES_AT
+      ? { iam_token_expires_at: process.env.KMS_IAM_TOKEN_EXPIRES_AT }
+      : {}),
+  },
 };
 
 // pick one based on environment

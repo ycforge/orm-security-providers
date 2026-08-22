@@ -43,6 +43,52 @@ describe("KmsBlindIndexProvider", () => {
         () => new KmsBlindIndexProvider({ blindIndexKey: key }),
       ).not.toThrow();
     });
+
+    it("tolerates surrounding whitespace (env-friendly)", () => {
+      const key = Buffer.alloc(32).toString("base64");
+      expect(
+        () => new KmsBlindIndexProvider({ blindIndexKey: `  ${key}\n` }),
+      ).not.toThrow();
+    });
+
+    it("rejects strings with characters outside the Base64 alphabet", () => {
+      expect(
+        () => new KmsBlindIndexProvider({ blindIndexKey: "not-base64!!!" }),
+      ).toThrow(/valid canonical Base64/);
+    });
+
+    it("rejects padding in the middle of the string", () => {
+      const key = Buffer.alloc(32).toString("base64");
+      const broken = `${key.slice(0, 4)}=${key.slice(5)}`;
+      expect(
+        () => new KmsBlindIndexProvider({ blindIndexKey: broken }),
+      ).toThrow(/valid canonical Base64/);
+    });
+
+    it("rejects non-canonical trailing bits", () => {
+      // "AB==" декодируется в байт, но канонично это "AA==" — lenient-декодер
+      // Node молча теряет хвостовые биты; строгая проверка это отсекает.
+      expect(
+        () => new KmsBlindIndexProvider({ blindIndexKey: "AB==" }),
+      ).toThrow(/valid canonical Base64/);
+    });
+
+    it("rejects unpadded keys whose length requires padding", () => {
+      const padded = Buffer.alloc(32).toString("base64"); // 44 chars, оканчивается на '='
+      const unpadded = padded.replace(/=+$/, "");
+      expect(unpadded.length).toBe(43);
+      expect(
+        () => new KmsBlindIndexProvider({ blindIndexKey: unpadded }),
+      ).toThrow(/valid canonical Base64/);
+    });
+
+    it("rejects impossible Base64 lengths (len % 4 === 1)", () => {
+      const key = `${Buffer.alloc(32).toString("base64")}e`;
+      expect(key.length % 4).toBe(1);
+      expect(() => new KmsBlindIndexProvider({ blindIndexKey: key })).toThrow(
+        /valid canonical Base64/,
+      );
+    });
   });
 
   describe("hash", () => {
@@ -120,6 +166,31 @@ describe("KmsBlindIndexProvider", () => {
       const hash = await provider.hash("Привет 🌍", defaultContext);
       expect(typeof hash).toBe("string");
       expect(hash.length).toBe(44);
+    });
+
+    // Эталонные значения посчитаны внешним инструментом (python hmac/sha256)
+    // по base64-декодированному ключу — проверяют, что это именно
+    // HMAC-SHA256(key=base64decode(blindIndexKey)), а не что-то другое.
+    it.each([
+      ["alice@example.com", "hBJA0qW2ZUs64h/ESZ23t4Zwd83WfD4WzvH5hD4n0fo="],
+      ["", "eWzTB4rxRjZ1PSaztVVUIv9Vo+Jhz4R7SOlTcbm9CqI="],
+      ["Привет 🌍", "hXl70PFlH0kifuhCLTCko0NZdhSgOtcYGuhnXxygv00="],
+    ])("matches reference HMAC-SHA256 for %j", async (plaintext, expected) => {
+      const key = Buffer.from(
+        "0123456789abcdef0123456789abcdef",
+        "utf8",
+      ).toString("base64");
+      const p = new KmsBlindIndexProvider({ blindIndexKey: key });
+      expect(await p.hash(plaintext, defaultContext)).toBe(expected);
+    });
+
+    it("treats equal plaintexts as equal indexes regardless of context/entity", async () => {
+      const h = await provider.hash("equal@example.com", defaultContext);
+      const h2 = await provider.hash(
+        "equal@example.com",
+        {} as YdbEncryptionContext,
+      );
+      expect(h).toBe(h2);
     });
   });
 });
