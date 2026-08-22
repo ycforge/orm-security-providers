@@ -242,6 +242,23 @@ describe("IamTokenManager", () => {
       ).toThrow("Invalid authorized_key.json");
     });
 
+    it("throws at construction when private_key is not parseable", () => {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          id: "key-id-123",
+          service_account_id: "sa-id-456",
+          private_key: "not-a-valid-pem-key",
+        }),
+      );
+
+      expect(
+        () =>
+          new IamTokenManager("auth_key", {
+            authorized_key_path: "/path/to/key.json",
+          }),
+      ).toThrow(/private_key is not a parseable key/);
+    });
+
     it("throws on IAM token exchange failure", async () => {
       mockFetch(errorResponse(401, "Unauthorized"));
 

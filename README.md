@@ -14,7 +14,7 @@ npm install @ycforge/orm-security-providers @ycforge/ydb-orm
 yarn add @ycforge/orm-security-providers @ycforge/ydb-orm
 ```
 
-> Требует `@ycforge/ydb-orm >= 0.2.0`: шифротекст хранится в YDB-колонке
+> Требует `@ycforge/ydb-orm >= 0.2.0-beta.0`: шифротекст хранится в YDB-колонке
 > `Bytes` как raw `Uint8Array` (без base64). Base64 используется только
 > на границе с KMS REST API.
 

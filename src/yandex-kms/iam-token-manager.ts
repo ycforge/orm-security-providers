@@ -32,11 +32,14 @@ interface IamJWTKeyCredentials {
 }
 
 function parseTimestamp(ts: unknown): Date {
-  if (!ts) return new Date(Date.now() + 3600_000);
-  if (ts instanceof Date) return ts;
-  if (typeof ts === "string") return new Date(ts);
-  if (typeof ts === "number") return new Date(ts);
-  return new Date(Date.now() + 3600_000);
+  const fallback = () => new Date(Date.now() + 3600_000);
+  let date: Date;
+  if (ts instanceof Date) date = ts;
+  else if (typeof ts === "string") date = new Date(ts);
+  else if (typeof ts === "number") date = new Date(ts);
+  else return fallback();
+  // Некорректный expiresAt не должен ломать кэш токена
+  return Number.isNaN(date.getTime()) ? fallback() : date;
 }
 
 /**
@@ -205,6 +208,15 @@ export class IamTokenManager {
     if (!json.id || !json.service_account_id || !json.private_key) {
       throw new Error(
         `Invalid authorized_key.json at ${path}. Expected fields: id, service_account_id, private_key`,
+      );
+    }
+
+    try {
+      // Валидируем ключ сразу, чтобы упасть на старте, а не при первом обмене JWT
+      crypto.createPrivateKey(json.private_key);
+    } catch {
+      throw new Error(
+        `Invalid authorized_key.json at ${path}: private_key is not a parseable key`,
       );
     }
 
