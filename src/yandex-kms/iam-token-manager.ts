@@ -13,11 +13,26 @@ export interface KmsAuthOptions {
   authorized_key_path?: string;
   /** IAM-токен напрямую (без автоматического обновления). */
   iam_token?: string;
+  /**
+   * Известный момент истечения статического IAM-токена (необязательно).
+   *
+   * По умолчанию срок не отслеживается вовсе: токен отдаётся как есть,
+   * а его валидность определяет сервер. Если дата задана и наступила,
+   * getToken() бросит ошибку вместо отправки заведомо мёртвого токена.
+   * Принимаются Date, ISO-строка или unix-ms.
+   */
+  iam_token_expires_at?: string | number | Date;
 }
 
 interface IamTokenResponse {
   iamToken?: string;
   expiresAt?: string;
+}
+
+/** Кэшированный токен; expired_at = null означает «срок неизвестен». */
+interface CachedToken {
+  value: string;
+  expired_at: Date | null;
 }
 
 interface MetadataTokenResponse {
@@ -52,7 +67,7 @@ function parseTimestamp(ts: unknown): Date {
  */
 export class IamTokenManager {
   #promise: Promise<string> | null = null;
-  #token: { value: string; expired_at: Date } | null = null;
+  #token: CachedToken | null = null;
   #authMethod: KmsAuthMethod;
   #credentials?: IamJWTKeyCredentials;
 
@@ -76,17 +91,44 @@ export class IamTokenManager {
       }
       this.#token = {
         value: authOptions.iam_token,
-        expired_at: new Date(Date.now() + 365 * 24 * 3600_000),
+        expired_at: this.#parseConfiguredExpiry(authOptions),
       };
     }
   }
 
+  /**
+   * Не выдумываем срок жизни статическому токену: без явного
+   * iam_token_expires_at возвращаем null (срок неизвестен).
+   */
+  #parseConfiguredExpiry(authOptions: KmsAuthOptions): Date | null {
+    const raw = authOptions.iam_token_expires_at;
+    if (raw === undefined || raw === null) return null;
+
+    const parsed = raw instanceof Date ? raw : new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error(
+        "iam_token_expires_at must be a valid date (Date, ISO string or unix ms)",
+      );
+    }
+    return parsed;
+  }
+
   async getToken(): Promise<string> {
-    if (
-      this.#token &&
-      this.#token.expired_at.getTime() - TOKEN_EXPIRY_LEEWAY_MS > Date.now()
-    ) {
-      return this.#token.value;
+    const cached = this.#token;
+    if (cached) {
+      // Статический токен без известного срока: отдаём как есть —
+      // валидность определяет сервер (режим не обновляется по дизайну).
+      if (cached.expired_at === null) {
+        return cached.value;
+      }
+      if (cached.expired_at.getTime() - TOKEN_EXPIRY_LEEWAY_MS > Date.now()) {
+        return cached.value;
+      }
+      if (this.#authMethod === "iam_token") {
+        throw new Error(
+          "IAM token has expired according to iam_token_expires_at; provide a fresh token",
+        );
+      }
     }
 
     if (this.#promise) {

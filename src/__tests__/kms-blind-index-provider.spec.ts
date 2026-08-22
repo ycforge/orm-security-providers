@@ -43,6 +43,52 @@ describe("KmsBlindIndexProvider", () => {
         () => new KmsBlindIndexProvider({ blindIndexKey: key }),
       ).not.toThrow();
     });
+
+    it("tolerates surrounding whitespace (env-friendly)", () => {
+      const key = Buffer.alloc(32).toString("base64");
+      expect(
+        () => new KmsBlindIndexProvider({ blindIndexKey: `  ${key}\n` }),
+      ).not.toThrow();
+    });
+
+    it("rejects strings with characters outside the Base64 alphabet", () => {
+      expect(
+        () => new KmsBlindIndexProvider({ blindIndexKey: "not-base64!!!" }),
+      ).toThrow(/valid canonical Base64/);
+    });
+
+    it("rejects padding in the middle of the string", () => {
+      const key = Buffer.alloc(32).toString("base64");
+      const broken = `${key.slice(0, 4)}=${key.slice(5)}`;
+      expect(
+        () => new KmsBlindIndexProvider({ blindIndexKey: broken }),
+      ).toThrow(/valid canonical Base64/);
+    });
+
+    it("rejects non-canonical trailing bits", () => {
+      // "AB==" декодируется в байт, но канонично это "AA==" — lenient-декодер
+      // Node молча теряет хвостовые биты; строгая проверка это отсекает.
+      expect(
+        () => new KmsBlindIndexProvider({ blindIndexKey: "AB==" }),
+      ).toThrow(/valid canonical Base64/);
+    });
+
+    it("rejects unpadded keys whose length requires padding", () => {
+      const padded = Buffer.alloc(32).toString("base64"); // 44 chars, оканчивается на '='
+      const unpadded = padded.replace(/=+$/, "");
+      expect(unpadded.length).toBe(43);
+      expect(
+        () => new KmsBlindIndexProvider({ blindIndexKey: unpadded }),
+      ).toThrow(/valid canonical Base64/);
+    });
+
+    it("rejects impossible Base64 lengths (len % 4 === 1)", () => {
+      const key = `${Buffer.alloc(32).toString("base64")}e`;
+      expect(key.length % 4).toBe(1);
+      expect(() => new KmsBlindIndexProvider({ blindIndexKey: key })).toThrow(
+        /valid canonical Base64/,
+      );
+    });
   });
 
   describe("hash", () => {

@@ -14,7 +14,7 @@ npm install @ycforge/orm-security-providers @ycforge/ydb-orm
 yarn add @ycforge/orm-security-providers @ycforge/ydb-orm
 ```
 
-> Требует `@ycforge/ydb-orm >= 0.2.0-beta.0`: шифротекст хранится в YDB-колонке
+> Требует `@ycforge/ydb-orm >= 0.2.0-beta.0 < 0.3.0`: шифротекст хранится в YDB-колонке
 > `Bytes` как raw `Uint8Array` (без base64). Base64 используется только
 > на границе с KMS REST API.
 
@@ -131,7 +131,7 @@ decrypt(ciphertext: Uint8Array, aad: string, context: YdbEncryptionContext): Pro
 |------|-------------|-----------------|
 | `meta` | VM metadata service (works only inside Yandex Cloud VMs) | none |
 | `auth_key` | Service-account JSON key → JWT → IAM token exchange | `authorized_key_path` |
-| `iam_token` | Static IAM token (no auto-refresh) | `iam_token` |
+| `iam_token` | Static IAM token (**non-refreshing**: served as-is, server responses decide validity) | `iam_token`; optional `iam_token_expires_at` |
 
 #### auth_key (recommended for local / CI)
 
@@ -176,6 +176,19 @@ new KmsEncryptionProvider({
 });
 ```
 
+The manager **does not invent an expiry** for a static token: by default it is
+returned as-is on every call (no refresh), and a 401 from the server surfaces
+as-is. If you know the expiry, pass `iam_token_expires_at` (`Date`, ISO string
+or unix ms) — after that moment `getToken()` throws instead of sending a
+dead token:
+
+```ts
+authOptions: {
+  iam_token: '<token>',
+  iam_token_expires_at: '2026-09-01T00:00:00Z',
+}
+```
+
 ### IamTokenManager
 
 ```ts
@@ -197,7 +210,7 @@ new KmsBlindIndexProvider(options: KmsBlindIndexProviderOptions)
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `blindIndexKey` | `string` | yes | Base64-encoded HMAC key (>= 32 bytes) |
+| `blindIndexKey` | `string` | yes | Canonical padded Base64 key (**≥ 32 bytes decoded**); invalid alphabet, bad padding or non-canonical trailing bits are rejected |
 
 Method:
 
