@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
-import { createAuth, authKeyFromFile } from "@ycforge/auth";
-import type { KmsEncryptionProviderOptions } from "../yandex-kms/kms-encryption-provider.js";
-import type { KmsBlindIndexProviderOptions } from "../hmac-bi/hmac-blind-index-provider.js";
+import { existsSync } from 'node:fs';
+import { createAuth, authKeyFromFile } from '@ycforge/auth';
+import type { KmsEncryptionProviderOptions } from '../yandex-kms/kms-encryption-provider.js';
+import type { KmsBlindIndexProviderOptions } from '../hmac-bi/hmac-blind-index-provider.js';
 
 export interface KmsTestConfig {
   encryption: KmsEncryptionProviderOptions;
@@ -27,23 +27,23 @@ export function loadKmsTestConfigFromEnv(): KmsTestConfig | null {
 
   const auth = ((): ReturnType<typeof createAuth> | null => {
     switch (authType) {
-      case "iam_token": {
-        const token = process.env.KMS_IAM_TOKEN ?? "";
+      case 'iam_token': {
+        const token = process.env.KMS_IAM_TOKEN ?? '';
         if (!token) return null;
         const expiresAt = process.env.KMS_IAM_TOKEN_EXPIRES_AT;
         return createAuth({
-          type: "iam_token",
+          type: 'iam_token',
           token,
           ...(expiresAt ? { expiresAt } : {}),
         });
       }
-      case "auth_key": {
-        const path = process.env.KMS_AUTHORIZED_KEY_PATH ?? "";
+      case 'auth_key': {
+        const path = process.env.KMS_AUTHORIZED_KEY_PATH ?? '';
         if (!path || !existsSync(path)) return null;
         return createAuth(authKeyFromFile(path));
       }
-      case "metadata":
-        return createAuth({ type: "metadata" });
+      case 'metadata':
+        return createAuth({ type: 'metadata' });
       default:
         return null;
     }

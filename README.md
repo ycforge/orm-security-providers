@@ -22,7 +22,7 @@ yarn add @ycforge/orm-security-providers @ycforge/ydb-orm
 
 | Subpath | Exports | Description |
 |---------|---------|-------------|
-| `@ycforge/orm-security-providers/yandex-kms` | `KmsEncryptionProvider`, `IamTokenManager` | Encrypt / decrypt via Yandex Cloud KMS SymmetricCrypto REST API |
+| `@ycforge/orm-security-providers/yandex-kms` | `KmsEncryptionProvider` | Encrypt / decrypt via Yandex Cloud KMS SymmetricCrypto REST API |
 | `@ycforge/orm-security-providers/hmac-bi` | `KmsBlindIndexProvider` | Deterministic HMAC-SHA256 blind indexes |
 
 Import from the specific subpath:
@@ -208,17 +208,6 @@ const auth = createAuth({
 });
 ```
 
-### IamTokenManager
-
-```ts
-import { createAuth } from '@ycforge/auth';
-import { IamTokenManager } from '@ycforge/orm-security-providers/yandex-kms';
-
-const auth = createAuth({ type: 'metadata' });
-const manager = new IamTokenManager(auth);
-const token = await manager.getToken();
-```
-
 ## `@ycforge/orm-security-providers/hmac-bi`
 
 ### KmsBlindIndexProvider
@@ -325,9 +314,8 @@ AAD-привязка, зашифрованный `updateBy()`, хранение 
 src/
   index.ts                              # root barrel — re-exports all providers
   yandex-kms/
-    index.ts                            # barrel for KMS + IAM
+    index.ts                            # barrel for KMS
     kms-encryption-provider.ts          # encrypt / decrypt via KMS REST API (Uint8Array contract)
-    iam-token-manager.ts                # IAM token management (3 auth modes)
   hmac-bi/
     index.ts                            # barrel for HMAC blind index
     hmac-blind-index-provider.ts        # HMAC-SHA256 blind index
@@ -336,7 +324,6 @@ src/
     helpers.ts                          # test config from env
     kms-encryption-provider.spec.ts
     kms-blind-index-provider.spec.ts
-    iam-token-manager.spec.ts
     e2e.spec.ts                         # mocked KMS roundtrips
     orm-pipeline.spec.ts                # real ydb-orm interface × providers
     integration.spec.ts                 # real KMS API (env-gated)

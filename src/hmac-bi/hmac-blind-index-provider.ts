@@ -1,8 +1,8 @@
-import { createHmac } from "node:crypto";
+import { createHmac } from 'node:crypto';
 import type {
   YdbBlindIndexProvider,
   YdbEncryptionContext,
-} from "@ycforge/ydb-orm";
+} from '@ycforge/ydb-orm';
 
 export interface KmsBlindIndexProviderOptions {
   /**
@@ -38,14 +38,14 @@ function decodeCanonicalBase64(input: string): Buffer {
     normalized.length % 4 === 1 // длина, невозможная для валидного Base64
   ) {
     throw new Error(
-      "blindIndexKey must be a valid canonical Base64 string (as produced by e.g. `openssl rand -base64 32`)",
+      'blindIndexKey must be a valid canonical Base64 string (as produced by e.g. `openssl rand -base64 32`)',
     );
   }
 
-  const decoded = Buffer.from(normalized, "base64");
-  if (decoded.toString("base64") !== normalized) {
+  const decoded = Buffer.from(normalized, 'base64');
+  if (decoded.toString('base64') !== normalized) {
     throw new Error(
-      "blindIndexKey must be a valid canonical Base64 string (as produced by e.g. `openssl rand -base64 32`)",
+      'blindIndexKey must be a valid canonical Base64 string (as produced by e.g. `openssl rand -base64 32`)',
     );
   }
 
@@ -70,21 +70,21 @@ export class KmsBlindIndexProvider implements YdbBlindIndexProvider {
 
   constructor(options: KmsBlindIndexProviderOptions) {
     if (!options.blindIndexKey) {
-      throw new Error("blindIndexKey is required");
+      throw new Error('blindIndexKey is required');
     }
 
     this.#key = decodeCanonicalBase64(options.blindIndexKey);
 
     if (this.#key.length < 32) {
       throw new Error(
-        "blindIndexKey must be at least 32 bytes (256 bits) when decoded",
+        'blindIndexKey must be at least 32 bytes (256 bits) when decoded',
       );
     }
   }
 
   hash(plaintext: string, _context: YdbEncryptionContext): Promise<string> {
     return Promise.resolve(
-      createHmac("sha256", this.#key).update(plaintext).digest("base64"),
+      createHmac('sha256', this.#key).update(plaintext).digest('base64'),
     );
   }
 }
