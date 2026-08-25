@@ -1166,6 +1166,11 @@
   resolved "https://registry.yarnpkg.com/@unrs/resolver-binding-win32-x64-msvc/-/resolver-binding-win32-x64-msvc-1.12.2.tgz#72da0da48d72b1e87831b9c0308931d3f4669027"
   integrity sha512-nAB74NfSNKknqQ1RrYj6uz8FcXEomu/MATJZxh/x+BArzN2U3JbOYC0APYzUIGhVY3m5hRxA8VPNdPBoG8txlA==
 
+"@ycforge/auth@^0.2.2":
+  version "0.2.2"
+  resolved "https://registry.yarnpkg.com/@ycforge/auth/-/auth-0.2.2.tgz#510745eb4aee157ba140ae52c7473441d411745e"
+  integrity sha512-bsYUGWrPTbdL31FGotGnC71ht8etLAQV+bF/ob4TtEHikVViQALrM9+1IaQxQH96OVmccjGAurYmK4IuCAJJhQ==
+
 "@ycforge/ydb-orm@0.2.0-beta.0":
   version "0.2.0-beta.0"
   resolved "https://registry.yarnpkg.com/@ycforge/ydb-orm/-/ydb-orm-0.2.0-beta.0.tgz#627faa4126148736a435d88d3d88a2c5cdc7c831"

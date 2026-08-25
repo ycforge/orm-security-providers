@@ -4,6 +4,8 @@
  * Запуск:
  *   KMS_KEY_ID=aby... KMS_AUTH_TYPE=iam_token KMS_IAM_TOKEN=... KMS_BLIND_INDEX_KEY=... yarn test:integration
  *
+ * Поддерживаемые KMS_AUTH_TYPE: iam_token | auth_key | metadata.
+ * Для auth_key также нужен KMS_AUTHORIZED_KEY_PATH.
  * Если переменные не заданы — suite пропускается (skip).
  * Никаких секретов в коде: всё читается из ENV.
  */

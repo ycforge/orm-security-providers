@@ -3,8 +3,4 @@ export {
   type KmsEncryptionProviderOptions,
 } from "./kms-encryption-provider.js";
 
-export {
-  IamTokenManager,
-  type KmsAuthMethod,
-  type KmsAuthOptions,
-} from "./iam-token-manager.js";
+export { IamTokenManager } from "./iam-token-manager.js";

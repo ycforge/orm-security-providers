@@ -1,4 +1,5 @@
 import { jest } from "@jest/globals";
+import { createAuth } from "@ycforge/auth";
 import { KmsEncryptionProvider } from "../yandex-kms/kms-encryption-provider.js";
 import type { YdbEncryptionContext } from "@ycforge/ydb-orm";
 
@@ -38,8 +39,7 @@ afterEach(() => {
 describe("KmsEncryptionProvider", () => {
   const baseOpts = {
     keyId: "aby123key",
-    auth_type: "iam_token" as const,
-    authOptions: { iam_token: "test-token" },
+    auth: createAuth({ type: "iam_token", token: "test-token" }),
   };
 
   describe("constructor", () => {
@@ -64,6 +64,50 @@ describe("KmsEncryptionProvider", () => {
         apiEndpoint: "https://custom-kms.example.com",
       });
       expect(provider).toBeDefined();
+    });
+
+    it("accepts an explicit AuthManager", () => {
+      const auth = createAuth({ type: "iam_token", token: "auth-token" });
+      const provider = new KmsEncryptionProvider({ keyId: "aby123key", auth });
+      expect(provider).toBeDefined();
+    });
+
+    it("throws when auth is not provided", () => {
+      expect(() => new KmsEncryptionProvider({ keyId: "aby123key" })).toThrow(
+        /auth \(AuthManager\) is required/,
+      );
+    });
+
+    it("encrypts using a token from the AuthManager", async () => {
+      const kmsCiphertextBase64 =
+        Buffer.from("raw-ciphertext").toString("base64");
+      const fetchMock = jest.fn(() =>
+        Promise.resolve(
+          jsonResponse({
+            keyId: "aby123key",
+            versionId: "v1",
+            ciphertext: kmsCiphertextBase64,
+          }),
+        ),
+      );
+      globalThis.fetch = fetchMock;
+
+      const auth = createAuth({ type: "iam_token", token: "named-token" });
+      const provider = new KmsEncryptionProvider({
+        keyId: "aby123key",
+        auth,
+      });
+
+      await provider.encrypt("hello", "", defaultContext);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer named-token",
+          }),
+        }),
+      );
     });
   });
 

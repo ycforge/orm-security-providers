@@ -2,8 +2,8 @@ import type {
   YdbEncryptionProvider,
   YdbEncryptionContext,
 } from "@ycforge/ydb-orm";
+import type { AuthManager } from "@ycforge/auth";
 import { IamTokenManager } from "./iam-token-manager.js";
-import type { KmsAuthMethod, KmsAuthOptions } from "./iam-token-manager.js";
 
 const KMS_API_BASE = "https://kms.yandex";
 
@@ -24,10 +24,8 @@ interface KmsDecryptResponse {
 export interface KmsEncryptionProviderOptions {
   /** ID симметричного ключа Yandex Cloud KMS. */
   keyId: string;
-  /** Способ авторизации. */
-  auth_type: KmsAuthMethod;
-  /** Опции авторизации. */
-  authOptions: KmsAuthOptions;
+  /** Готовый менеджер авторизации из `@ycforge/auth`. */
+  auth: AuthManager;
   /** Базовый URL KMS API (по умолчанию https://kms.yandex). */
   apiEndpoint?: string;
 }
@@ -47,10 +45,12 @@ export interface KmsEncryptionProviderOptions {
  * Подключается через опции модуля:
  *
  * ```ts
+ * import { createAuth, authKeyFromFile } from '@ycforge/auth';
+ * import { KmsEncryptionProvider } from '@ycforge/orm-security-providers/yandex-kms';
+ *
  * encryptionProvider: new KmsEncryptionProvider({
- *   keyId: 'aby...",
- *   auth_type: 'auth_key',
- *   authOptions: { authorized_key_path: './authorized_key.json' },
+ *   keyId: 'aby...',
+ *   auth: createAuth(authKeyFromFile('./authorized_key.json')),
  * }),
  * ```
  */
@@ -64,12 +64,13 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
       throw new Error("keyId is required");
     }
 
+    if (!options.auth) {
+      throw new Error("auth (AuthManager) is required");
+    }
+
     this.#keyId = options.keyId;
     this.#apiEndpoint = options.apiEndpoint ?? KMS_API_BASE;
-    this.#tokenManager = new IamTokenManager(
-      options.auth_type,
-      options.authOptions,
-    );
+    this.#tokenManager = new IamTokenManager(options.auth);
   }
 
   async encrypt(

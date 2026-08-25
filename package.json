@@ -54,6 +54,9 @@
     "lint": "eslint \"src/**/*.ts\" --fix",
     "format": "prettier --write \"src/**/*.ts\""
   },
+  "dependencies": {
+    "@ycforge/auth": "^0.2.2"
+  },
   "peerDependencies": {
     "@ycforge/ydb-orm": ">=0.2.0-beta.0 <0.3.0"
   },

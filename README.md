@@ -43,27 +43,30 @@ import { KmsEncryptionProvider, KmsBlindIndexProvider } from '@ycforge/orm-secur
 ```ts
 import { Module } from '@nestjs/common';
 import { YdbCoreModule, YdbModule } from '@ycforge/ydb-orm';
+import { YcAuthModule, InjectAuth } from '@ycforge/auth/nestjs';
+import { createAuth, authKeyFromFile } from '@ycforge/auth';
 import { KmsEncryptionProvider } from '@ycforge/orm-security-providers/yandex-kms';
 import { KmsBlindIndexProvider } from '@ycforge/orm-security-providers/hmac-bi';
 
 @Module({
   imports: [
+    YcAuthModule.forRoot({
+      config: authKeyFromFile(process.env.YDB_AUTHORIZED_KEY_PATH!),
+      global: true,
+    }),
     YdbCoreModule.forRootAsync({
-      useFactory: () => ({
+      useFactory: (auth) => ({
         endpoint: process.env.YDB_ENDPOINT!,
-        auth_type: 'auth_key',
-        authOptions: {
-          authorized_key_path: './authorized_key.json',
-        },
+        auth,
         encryptionProvider: new KmsEncryptionProvider({
           keyId: process.env.KMS_KEY_ID!,
-          auth_type: 'auth_key',
-          authOptions: { authorized_key_path: './authorized_key.json' },
+          auth,
         }),
         blindIndexProvider: new KmsBlindIndexProvider({
           blindIndexKey: process.env.KMS_BLIND_INDEX_KEY!,
         }),
       }),
+      inject: [InjectAuth()],
     }),
     YdbModule.forFeature([UserEntity]),
   ],
@@ -75,13 +78,18 @@ export class AppModule {}
 
 ```ts
 import { configureEntities, createDriver, createExecutor } from '@ycforge/ydb-orm';
+import { createAuth } from '@ycforge/auth';
 
-const driver = await createDriver({ endpoint: '...', auth_type: 'meta', authOptions: {} });
-const executor = createExecutor(driver, { endpoint: '...', auth_type: 'meta', authOptions: {} });
+const auth = createAuth({ type: 'metadata' });
+const driver = await createDriver({ endpoint: '...', auth });
+const executor = createExecutor(driver, { endpoint: '...', auth });
 
 configureEntities([UserEntity], {
   executor,
-  encryptionProvider: new KmsEncryptionProvider({ /* ... */ }),
+  encryptionProvider: new KmsEncryptionProvider({
+    keyId: process.env.KMS_KEY_ID!,
+    auth,
+  }),
   blindIndexProvider: new KmsBlindIndexProvider({ /* ... */ }),
 });
 ```
@@ -114,8 +122,7 @@ new KmsEncryptionProvider(options: KmsEncryptionProviderOptions)
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `keyId` | `string` | yes | — | KMS symmetric key ID |
-| `auth_type` | `'meta' \| 'auth_key' \| 'iam_token'` | yes | — | Auth method |
-| `authOptions` | `KmsAuthOptions` | yes | — | Auth parameters |
+| `auth` | `AuthManager` (`@ycforge/auth`) | yes | — | Ready-made auth manager |
 | `apiEndpoint` | `string` | no | `https://kms.yandex` | KMS API base URL |
 
 Methods:
@@ -127,11 +134,21 @@ decrypt(ciphertext: Uint8Array, aad: string, context: YdbEncryptionContext): Pro
 
 ### Authentication
 
-| Mode | Description | Required options |
-|------|-------------|-----------------|
-| `meta` | VM metadata service (works only inside Yandex Cloud VMs) | none |
-| `auth_key` | Service-account JSON key → JWT → IAM token exchange | `authorized_key_path` |
-| `iam_token` | Static IAM token (**non-refreshing**: served as-is, server responses decide validity) | `iam_token`; optional `iam_token_expires_at` |
+Authorization is handled entirely by a ready-made `AuthManager` from
+[`@ycforge/auth`](https://github.com/ycforge/auth). Create it with
+`createAuth(...)` and pass it to `KmsEncryptionProvider`.
+
+The provider requests tokens with usage `'ycloud'`; strategies that don't
+support it (`anonymous`, `access_token`, `static`) are rejected by
+`@ycforge/auth` with `UnsupportedAuthMethodError`.
+
+```ts
+import { createAuth, authKeyFromFile } from '@ycforge/auth';
+
+const auth = createAuth(authKeyFromFile('./authorized_key.json'));
+
+new KmsEncryptionProvider({ keyId: 'aby...', auth });
+```
 
 #### auth_key (recommended for local / CI)
 
@@ -145,20 +162,22 @@ yc kms symmetric-key add-access-binding \
 ```
 
 ```ts
+import { createAuth, authKeyFromFile } from '@ycforge/auth';
+
 new KmsEncryptionProvider({
   keyId: 'aby...',
-  auth_type: 'auth_key',
-  authOptions: { authorized_key_path: './authorized_key.json' },
+  auth: createAuth(authKeyFromFile('./authorized_key.json')),
 });
 ```
 
-#### meta (production on VM)
+#### metadata (production on VM)
 
 ```ts
+import { createAuth } from '@ycforge/auth';
+
 new KmsEncryptionProvider({
   keyId: 'aby...',
-  auth_type: 'meta',
-  authOptions: {},
+  auth: createAuth({ type: 'metadata' }),
 });
 ```
 
@@ -169,34 +188,34 @@ yc iam create-token
 ```
 
 ```ts
+import { createAuth } from '@ycforge/auth';
+
 new KmsEncryptionProvider({
   keyId: 'aby...',
-  auth_type: 'iam_token',
-  authOptions: { iam_token: '<token>' },
+  auth: createAuth({ type: 'iam_token', token: '<token>' }),
 });
 ```
 
-The manager **does not invent an expiry** for a static token: by default it is
-returned as-is on every call (no refresh), and a 401 from the server surfaces
-as-is. If you know the expiry, pass `iam_token_expires_at` (`Date`, ISO string
-or unix ms) — after that moment `getToken()` throws instead of sending a
-dead token:
+Static tokens are served as-is; their validity is decided by the server. If
+you know the expiry, pass `expiresAt` (`Date`, ISO string or unix ms) — after
+that moment `getToken()` throws instead of sending a dead token:
 
 ```ts
-authOptions: {
-  iam_token: '<token>',
-  iam_token_expires_at: '2026-09-01T00:00:00Z',
-}
+const auth = createAuth({
+  type: 'iam_token',
+  token: '<token>',
+  expiresAt: '2026-09-01T00:00:00Z',
+});
 ```
 
 ### IamTokenManager
 
 ```ts
+import { createAuth } from '@ycforge/auth';
 import { IamTokenManager } from '@ycforge/orm-security-providers/yandex-kms';
 
-const manager = new IamTokenManager('auth_key', {
-  authorized_key_path: './authorized_key.json',
-});
+const auth = createAuth({ type: 'metadata' });
+const manager = new IamTokenManager(auth);
 const token = await manager.getToken();
 ```
 

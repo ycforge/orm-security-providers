@@ -11,6 +11,11 @@ jest.unstable_mockModule("node:fs", () => ({
 
 await import("node:fs");
 const { IamTokenManager } = await import("../yandex-kms/iam-token-manager.js");
+const {
+  createAuth,
+  authKeyFromFile,
+  UnsupportedAuthMethodError,
+} = await import("@ycforge/auth");
 
 const originalFetch = globalThis.fetch;
 
@@ -36,17 +41,52 @@ function errorResponse(status: number, body: string): Response {
   } as Response;
 }
 
+/**
+ * @ycforge/auth ретраит сетевые/HTTP ошибки с backoff (5 попыток).
+ * Чтобы не ждать реальные ~111 c backoff'а, прокручиваем fake timers.
+ */
+async function expectRejectsWithRetry(
+  promise: Promise<unknown>,
+  matcher: string | RegExp,
+) {
+  const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+  jest.useFakeTimers();
+  try {
+    const assertion = expect(promise).rejects.toThrow(matcher);
+    await jest.advanceTimersByTimeAsync(200_000);
+    await assertion;
+  } finally {
+    jest.useRealTimers();
+    warnSpy.mockRestore();
+  }
+}
+
 afterEach(() => {
   globalThis.fetch = originalFetch;
   jest.clearAllMocks();
 });
 
 describe("IamTokenManager", () => {
-  describe("iam_token auth", () => {
+  it("throws when auth is not provided", () => {
+    expect(() => new IamTokenManager(undefined as any)).toThrow(
+      /auth \(AuthManager\) is required/,
+    );
+  });
+
+  it("delegates getToken() to AuthManager with usage 'ycloud'", async () => {
+    globalThis.fetch = jest.fn() as any;
+
+    const auth = createAuth({ type: "iam_token", token: "auth-token" });
+    const manager = new IamTokenManager(auth);
+
+    await expect(manager.getToken()).resolves.toBe("auth-token");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  describe("createAuth({ type: 'iam_token' })", () => {
     it("returns the provided token directly", async () => {
-      const manager = new IamTokenManager("iam_token", {
-        iam_token: "test-iam-token",
-      });
+      const auth = createAuth({ type: "iam_token", token: "test-iam-token" });
+      const manager = new IamTokenManager(auth);
 
       const token = await manager.getToken();
 
@@ -56,9 +96,8 @@ describe("IamTokenManager", () => {
     it("does not call fetch", async () => {
       globalThis.fetch = jest.fn() as any;
 
-      const manager = new IamTokenManager("iam_token", {
-        iam_token: "test-iam-token",
-      });
+      const auth = createAuth({ type: "iam_token", token: "test-iam-token" });
+      const manager = new IamTokenManager(auth);
 
       await manager.getToken();
 
@@ -68,9 +107,8 @@ describe("IamTokenManager", () => {
     it("caches the token and returns it on subsequent calls", async () => {
       globalThis.fetch = jest.fn() as any;
 
-      const manager = new IamTokenManager("iam_token", {
-        iam_token: "cached-token",
-      });
+      const auth = createAuth({ type: "iam_token", token: "cached-token" });
+      const manager = new IamTokenManager(auth);
 
       const t1 = await manager.getToken();
       const t2 = await manager.getToken();
@@ -79,62 +117,9 @@ describe("IamTokenManager", () => {
       expect(t2).toBe("cached-token");
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
-
-    it("throws when iam_token is not provided", () => {
-      expect(() => new IamTokenManager("iam_token", {})).toThrow(
-        "iam_token is required for iam_token authentication",
-      );
-    });
-
-    it("does not fabricate an expiry: token is served as-is without refresh", async () => {
-      globalThis.fetch = jest.fn() as any;
-
-      const manager = new IamTokenManager("iam_token", {
-        iam_token: "static-token",
-      });
-
-      // Сколько бы вызовов ни было — токен отдаётся как есть, fetch не дёргается
-      for (let i = 0; i < 5; i++) {
-        await expect(manager.getToken()).resolves.toBe("static-token");
-      }
-      expect(globalThis.fetch).not.toHaveBeenCalled();
-    });
-
-    it("accepts a future iam_token_expires_at", async () => {
-      globalThis.fetch = jest.fn() as any;
-
-      const manager = new IamTokenManager("iam_token", {
-        iam_token: "fresh-token",
-        iam_token_expires_at: new Date(Date.now() + 3600_000),
-      });
-
-      await expect(manager.getToken()).resolves.toBe("fresh-token");
-      expect(globalThis.fetch).not.toHaveBeenCalled();
-    });
-
-    it("rejects an expired iam_token instead of sending a dead token", async () => {
-      const manager = new IamTokenManager("iam_token", {
-        iam_token: "stale-token",
-        iam_token_expires_at: new Date(Date.now() - 1000),
-      });
-
-      await expect(manager.getToken()).rejects.toThrow(
-        /expired according to iam_token_expires_at/,
-      );
-    });
-
-    it("throws at construction on unparseable iam_token_expires_at", () => {
-      expect(
-        () =>
-          new IamTokenManager("iam_token", {
-            iam_token: "t",
-            iam_token_expires_at: "not-a-date",
-          }),
-      ).toThrow("iam_token_expires_at must be a valid date");
-    });
   });
 
-  describe("meta auth", () => {
+  describe("createAuth({ type: 'metadata' })", () => {
     it("fetches token from metadata service", async () => {
       mockFetch(
         jsonResponse({
@@ -143,13 +128,16 @@ describe("IamTokenManager", () => {
         }),
       );
 
-      const manager = new IamTokenManager("meta", {});
+      const auth = createAuth({ type: "metadata" });
+      const manager = new IamTokenManager(auth);
       const token = await manager.getToken();
 
       expect(token).toBe("meta-token-abc");
       expect(globalThis.fetch).toHaveBeenCalledWith(
         "http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token",
-        { headers: { "Metadata-Flavor": "Google" } },
+        expect.objectContaining({
+          headers: { "Metadata-Flavor": "Google" },
+        }),
       );
     });
 
@@ -165,7 +153,8 @@ describe("IamTokenManager", () => {
         );
       });
 
-      const manager = new IamTokenManager("meta", {});
+      const auth = createAuth({ type: "metadata" });
+      const manager = new IamTokenManager(auth);
 
       const t1 = await manager.getToken();
       const t2 = await manager.getToken();
@@ -175,59 +164,20 @@ describe("IamTokenManager", () => {
       expect(callCount).toBe(1);
     });
 
-    it("refreshes token when expired", async () => {
-      let callCount = 0;
-      globalThis.fetch = jest.fn(() => {
-        callCount++;
-        return Promise.resolve(
-          jsonResponse({
-            access_token: `token-${callCount}`,
-            expires_in: 0,
-          }),
-        );
-      });
-
-      const manager = new IamTokenManager("meta", {});
-
-      const t1 = await manager.getToken();
-      const t2 = await manager.getToken();
-
-      expect(t1).toBe("token-1");
-      expect(t2).toBe("token-2");
-      expect(callCount).toBe(2);
-    });
-
-    it("throws on metadata service failure", async () => {
+    it("throws on metadata service failure (after retries)", async () => {
       mockFetch(errorResponse(500, "Internal Server Error"));
 
-      const manager = new IamTokenManager("meta", {});
+      const auth = createAuth({ type: "metadata" });
+      const manager = new IamTokenManager(auth);
 
-      await expect(manager.getToken()).rejects.toThrow(
-        "Metadata token request failed: 500",
+      await expectRejectsWithRetry(
+        manager.getToken(),
+        "Metadata token request failed with status 500",
       );
-    });
-
-    it("throws when access_token is missing in response", async () => {
-      mockFetch(jsonResponse({ expires_in: 3600 }));
-
-      const manager = new IamTokenManager("meta", {});
-
-      await expect(manager.getToken()).rejects.toThrow(
-        "No access_token in metadata response",
-      );
-    });
-
-    it("handles missing expires_in with default 3600s", async () => {
-      mockFetch(jsonResponse({ access_token: "token-no-exp" }));
-
-      const manager = new IamTokenManager("meta", {});
-
-      const token = await manager.getToken();
-      expect(token).toBe("token-no-exp");
     });
   });
 
-  describe("auth_key auth", () => {
+  describe("createAuth(authKeyFromFile(...))", () => {
     const { privateKey } = crypto.generateKeyPairSync("rsa", {
       modulusLength: 2048,
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
@@ -252,10 +202,8 @@ describe("IamTokenManager", () => {
         }),
       );
 
-      const manager = new IamTokenManager("auth_key", {
-        authorized_key_path: "/path/to/key.json",
-      });
-
+      const auth = createAuth(authKeyFromFile("/path/to/key.json"));
+      const manager = new IamTokenManager(auth);
       const token = await manager.getToken();
 
       expect(token).toBe("exchanged-iam-token");
@@ -272,61 +220,15 @@ describe("IamTokenManager", () => {
       );
     });
 
-    it("throws when authorized_key_path is not provided", () => {
-      expect(() => new IamTokenManager("auth_key", {})).toThrow(
-        "authorized_key_path is required for auth_key authentication",
-      );
-    });
-
-    it("throws on invalid key file", () => {
-      mockReadFileSync.mockReturnValue(JSON.stringify({ id: "key-id" }));
-
-      expect(
-        () =>
-          new IamTokenManager("auth_key", {
-            authorized_key_path: "/path/to/bad.json",
-          }),
-      ).toThrow("Invalid authorized_key.json");
-    });
-
-    it("throws at construction when private_key is not parseable", () => {
-      mockReadFileSync.mockReturnValue(
-        JSON.stringify({
-          id: "key-id-123",
-          service_account_id: "sa-id-456",
-          private_key: "not-a-valid-pem-key",
-        }),
-      );
-
-      expect(
-        () =>
-          new IamTokenManager("auth_key", {
-            authorized_key_path: "/path/to/key.json",
-          }),
-      ).toThrow(/private_key is not a parseable key/);
-    });
-
-    it("throws on IAM token exchange failure", async () => {
+    it("throws on IAM token exchange failure (after retries)", async () => {
       mockFetch(errorResponse(401, "Unauthorized"));
 
-      const manager = new IamTokenManager("auth_key", {
-        authorized_key_path: "/path/to/key.json",
-      });
+      const auth = createAuth(authKeyFromFile("/path/to/key.json"));
+      const manager = new IamTokenManager(auth);
 
-      await expect(manager.getToken()).rejects.toThrow(
-        "IAM token exchange failed: 401",
-      );
-    });
-
-    it("throws when iamToken is missing in response", async () => {
-      mockFetch(jsonResponse({}));
-
-      const manager = new IamTokenManager("auth_key", {
-        authorized_key_path: "/path/to/key.json",
-      });
-
-      await expect(manager.getToken()).rejects.toThrow(
-        "No iamToken in response",
+      await expectRejectsWithRetry(
+        manager.getToken(),
+        "IAM token exchange failed with status 401",
       );
     });
 
@@ -338,9 +240,8 @@ describe("IamTokenManager", () => {
         }),
       );
 
-      const manager = new IamTokenManager("auth_key", {
-        authorized_key_path: "/path/to/key.json",
-      });
+      const auth = createAuth(authKeyFromFile("/path/to/key.json"));
+      const manager = new IamTokenManager(auth);
 
       const t1 = await manager.getToken();
       const t2 = await manager.getToken();
@@ -358,9 +259,8 @@ describe("IamTokenManager", () => {
         }),
       );
 
-      const manager = new IamTokenManager("auth_key", {
-        authorized_key_path: "/path/to/key.json",
-      });
+      const auth = createAuth(authKeyFromFile("/path/to/key.json"));
+      const manager = new IamTokenManager(auth);
 
       const [t1, t2, t3] = await Promise.all([
         manager.getToken(),
@@ -372,6 +272,20 @@ describe("IamTokenManager", () => {
       expect(t2).toBe("concurrent-token");
       expect(t3).toBe("concurrent-token");
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("unsupported strategy for 'ycloud' usage", () => {
+    it("throws UnsupportedAuthMethodError for anonymous auth", async () => {
+      const auth = createAuth({ type: "anonymous" });
+      const manager = new IamTokenManager(auth);
+
+      await expect(manager.getToken()).rejects.toThrow(
+        UnsupportedAuthMethodError,
+      );
+      await expect(manager.getToken()).rejects.toThrow(
+        'not supported for usage "ycloud"',
+      );
     });
   });
 });

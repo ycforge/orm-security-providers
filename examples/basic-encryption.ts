@@ -6,15 +6,15 @@
  * Base64 используется только внутри KMS REST API.
  *
  * Run:
- *   KMS_KEY_ID=aby... KMS_AUTH_TYPE=iam_token KMS_IAM_TOKEN=... npx tsx examples/basic-encryption.ts
+ *   KMS_KEY_ID=aby... KMS_IAM_TOKEN=... npx tsx examples/basic-encryption.ts
  */
+import { createAuth } from '@ycforge/auth';
 import { KmsEncryptionProvider } from '../src/yandex-kms/kms-encryption-provider.js';
 import type { YdbEncryptionContext } from '@ycforge/ydb-orm';
 
 const provider = new KmsEncryptionProvider({
   keyId: process.env.KMS_KEY_ID!,
-  auth_type: 'iam_token',
-  authOptions: { iam_token: process.env.KMS_IAM_TOKEN! },
+  auth: createAuth({ type: 'iam_token', token: process.env.KMS_IAM_TOKEN! }),
 });
 
 const context: YdbEncryptionContext = {

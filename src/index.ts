@@ -3,11 +3,7 @@ export {
   type KmsEncryptionProviderOptions,
 } from "./yandex-kms/kms-encryption-provider.js";
 
-export {
-  IamTokenManager,
-  type KmsAuthMethod,
-  type KmsAuthOptions,
-} from "./yandex-kms/iam-token-manager.js";
+export { IamTokenManager } from "./yandex-kms/iam-token-manager.js";
 
 export {
   KmsBlindIndexProvider,

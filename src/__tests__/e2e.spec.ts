@@ -1,5 +1,6 @@
 import { jest } from "@jest/globals";
 import { randomBytes } from "node:crypto";
+import { createAuth } from "@ycforge/auth";
 import { KmsEncryptionProvider } from "../yandex-kms/kms-encryption-provider.js";
 import { KmsBlindIndexProvider } from "../hmac-bi/hmac-blind-index-provider.js";
 import type { YdbEncryptionContext } from "@ycforge/ydb-orm";
@@ -19,8 +20,7 @@ function createMockKmsProviders() {
 
   const encProvider = new KmsEncryptionProvider({
     keyId,
-    auth_type: "iam_token",
-    authOptions: { iam_token: "test-token" },
+    auth: createAuth({ type: "iam_token", token: "test-token" }),
   });
 
   const biProvider = new KmsBlindIndexProvider({

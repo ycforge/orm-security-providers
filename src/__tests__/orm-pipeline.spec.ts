@@ -14,6 +14,7 @@
 import "reflect-metadata";
 import { randomBytes } from "node:crypto";
 import { jest } from "@jest/globals";
+import { createAuth } from "@ycforge/auth";
 import {
   configureEntities,
   YdbBaseEntity,
@@ -371,8 +372,7 @@ beforeAll(() => {
 
   enc = new KmsEncryptionProvider({
     keyId: "pipeline-key",
-    auth_type: "iam_token",
-    authOptions: { iam_token: "test-token" },
+    auth: createAuth({ type: "iam_token", token: "test-token" }),
   });
   bi = new KmsBlindIndexProvider({ blindIndexKey: BI_KEY });
 
