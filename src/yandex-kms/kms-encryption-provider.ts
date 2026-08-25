@@ -1,11 +1,10 @@
 import type {
   YdbEncryptionProvider,
   YdbEncryptionContext,
-} from "@ycforge/ydb-orm";
-import { IamTokenManager } from "./iam-token-manager.js";
-import type { KmsAuthMethod, KmsAuthOptions } from "./iam-token-manager.js";
+} from '@ycforge/ydb-orm';
+import { YCLOUD_AUTH_USAGE, type AuthManager } from '@ycforge/auth';
 
-const KMS_API_BASE = "https://kms.yandex";
+const KMS_API_BASE = 'https://kms.yandex';
 
 interface KmsEncryptResponse {
   keyId: string;
@@ -24,10 +23,8 @@ interface KmsDecryptResponse {
 export interface KmsEncryptionProviderOptions {
   /** ID симметричного ключа Yandex Cloud KMS. */
   keyId: string;
-  /** Способ авторизации. */
-  auth_type: KmsAuthMethod;
-  /** Опции авторизации. */
-  authOptions: KmsAuthOptions;
+  /** Готовый менеджер авторизации из `@ycforge/auth`. */
+  auth: AuthManager;
   /** Базовый URL KMS API (по умолчанию https://kms.yandex). */
   apiEndpoint?: string;
 }
@@ -47,29 +44,32 @@ export interface KmsEncryptionProviderOptions {
  * Подключается через опции модуля:
  *
  * ```ts
+ * import { createAuth, authKeyFromFile } from '@ycforge/auth';
+ * import { KmsEncryptionProvider } from '@ycforge/orm-security-providers/yandex-kms';
+ *
  * encryptionProvider: new KmsEncryptionProvider({
- *   keyId: 'aby...",
- *   auth_type: 'auth_key',
- *   authOptions: { authorized_key_path: './authorized_key.json' },
+ *   keyId: 'aby...',
+ *   auth: createAuth(authKeyFromFile('./authorized_key.json')),
  * }),
  * ```
  */
 export class KmsEncryptionProvider implements YdbEncryptionProvider {
   readonly #keyId: string;
-  readonly #tokenManager: IamTokenManager;
+  readonly #auth: AuthManager;
   readonly #apiEndpoint: string;
 
   constructor(options: KmsEncryptionProviderOptions) {
     if (!options.keyId) {
-      throw new Error("keyId is required");
+      throw new Error('keyId is required');
+    }
+
+    if (!options.auth) {
+      throw new Error('auth (AuthManager) is required');
     }
 
     this.#keyId = options.keyId;
     this.#apiEndpoint = options.apiEndpoint ?? KMS_API_BASE;
-    this.#tokenManager = new IamTokenManager(
-      options.auth_type,
-      options.authOptions,
-    );
+    this.#auth = options.auth;
   }
 
   async encrypt(
@@ -77,21 +77,21 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
     aad: string,
     _context: YdbEncryptionContext,
   ): Promise<Uint8Array> {
-    const token = await this.#tokenManager.getToken();
+    const token = await this.#auth.getToken(YCLOUD_AUTH_USAGE);
 
     const body: Record<string, string> = {
-      plaintext: Buffer.from(plaintext, "utf8").toString("base64"),
+      plaintext: Buffer.from(plaintext, 'utf8').toString('base64'),
     };
 
     if (aad) {
-      body.aadContext = Buffer.from(aad, "utf8").toString("base64");
+      body.aadContext = Buffer.from(aad, 'utf8').toString('base64');
     }
 
     const url = `${this.#apiEndpoint}/kms/v1/keys/${this.#keyId}:encrypt`;
     const response = await fetch(url, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
@@ -103,7 +103,7 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
     }
 
     const data = (await response.json()) as KmsEncryptResponse;
-    return new Uint8Array(Buffer.from(data.ciphertext, "base64"));
+    return new Uint8Array(Buffer.from(data.ciphertext, 'base64'));
   }
 
   async decrypt(
@@ -111,21 +111,21 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
     aad: string,
     _context: YdbEncryptionContext,
   ): Promise<string> {
-    const token = await this.#tokenManager.getToken();
+    const token = await this.#auth.getToken(YCLOUD_AUTH_USAGE);
 
     const body: Record<string, string> = {
-      ciphertext: Buffer.from(ciphertext).toString("base64"),
+      ciphertext: Buffer.from(ciphertext).toString('base64'),
     };
 
     if (aad) {
-      body.aadContext = Buffer.from(aad, "utf8").toString("base64");
+      body.aadContext = Buffer.from(aad, 'utf8').toString('base64');
     }
 
     const url = `${this.#apiEndpoint}/kms/v1/keys/${this.#keyId}:decrypt`;
     const response = await fetch(url, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
@@ -137,6 +137,6 @@ export class KmsEncryptionProvider implements YdbEncryptionProvider {
     }
 
     const data = (await response.json()) as KmsDecryptResponse;
-    return Buffer.from(data.plaintext, "base64").toString("utf8");
+    return Buffer.from(data.plaintext, 'base64').toString('utf8');
   }
 }

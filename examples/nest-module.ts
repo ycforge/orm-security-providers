@@ -1,8 +1,10 @@
 /**
  * NestJS: YdbCoreModule.forRootAsync() + провайдеры безопасности.
  *
- * encryptionProvider / blindIndexProvider передаются в опциях модуля
- * и попадают во все сущности, зарегистрированные через forFeature().
+ * Аутентификация централизована через @ycforge/auth/nestjs:
+ * YcAuthModule.forRoot() регистрирует AuthManager, который затем
+ * инжектируется в useFactory и используется и драйвером YDB, и
+ * KMS-провайдером шифрования.
  */
 import { Module } from '@nestjs/common';
 import {
@@ -13,8 +15,9 @@ import {
   YdbPrimaryColumn,
   YdbColumn,
   YdbEncrypted,
-  YdbSecurityAAD,
 } from '@ycforge/ydb-orm';
+import { YcAuthModule, InjectAuth } from '@ycforge/auth/nestjs';
+import { authKeyFromFile } from '@ycforge/auth';
 import { KmsEncryptionProvider } from '@ycforge/orm-security-providers/yandex-kms';
 import { KmsBlindIndexProvider } from '@ycforge/orm-security-providers/hmac-bi';
 
@@ -32,24 +35,23 @@ export class UserEntity extends YdbBaseEntity {
 
 @Module({
   imports: [
+    YcAuthModule.forRoot({
+      config: authKeyFromFile(process.env.YDB_AUTHORIZED_KEY_PATH!),
+      global: true,
+    }),
     YdbCoreModule.forRootAsync({
-      useFactory: () => ({
+      useFactory: (auth) => ({
         endpoint: process.env.YDB_ENDPOINT!,
-        auth_type: 'auth_key' as const,
-        authOptions: {
-          authorized_key_path: process.env.YDB_AUTHORIZED_KEY_PATH!,
-        },
+        auth,
         encryptionProvider: new KmsEncryptionProvider({
           keyId: process.env.KMS_KEY_ID!,
-          auth_type: 'auth_key',
-          authOptions: {
-            authorized_key_path: process.env.KMS_AUTHORIZED_KEY_PATH!,
-          },
+          auth,
         }),
         blindIndexProvider: new KmsBlindIndexProvider({
           blindIndexKey: process.env.KMS_BLIND_INDEX_KEY!,
         }),
       }),
+      inject: [InjectAuth()],
     }),
     YdbModule.forFeature([UserEntity]),
   ],

@@ -11,9 +11,10 @@
  * Base64 появляется только внутри KMS-адаптера: в БД лежат raw Uint8Array
  * (колонка Bytes), как и требует контракт ydb-orm v0.2+.
  */
-import "reflect-metadata";
-import { randomBytes } from "node:crypto";
-import { jest } from "@jest/globals";
+import 'reflect-metadata';
+import { randomBytes } from 'node:crypto';
+import { jest } from '@jest/globals';
+import { createAuth } from '@ycforge/auth';
 import {
   configureEntities,
   YdbBaseEntity,
@@ -22,10 +23,10 @@ import {
   YdbEntity,
   YdbPrimaryColumn,
   YdbSecurityAAD,
-} from "@ycforge/ydb-orm";
-import type { YdbExecutor } from "@ycforge/ydb-orm";
-import { KmsEncryptionProvider } from "../yandex-kms/kms-encryption-provider.js";
-import { KmsBlindIndexProvider } from "../hmac-bi/hmac-blind-index-provider.js";
+} from '@ycforge/ydb-orm';
+import type { YdbExecutor } from '@ycforge/ydb-orm';
+import { KmsEncryptionProvider } from '../yandex-kms/kms-encryption-provider.js';
+import { KmsBlindIndexProvider } from '../hmac-bi/hmac-blind-index-provider.js';
 
 // ─────────────────────────────────────────────────────────────
 // In-memory YDB emulator
@@ -39,19 +40,19 @@ interface CapturedQuery {
 /** Разворачивает обёртки значений @ydbjs/value (Uuid/Utf8/Bytes/Optional…). */
 function unwrapValue(v: unknown): unknown {
   if (v === null || v === undefined) return null;
-  if (typeof v === "object" && "item" in (v as any)) {
+  if (typeof v === 'object' && 'item' in (v as any)) {
     const item = (v as any).item;
     return item === null || item === undefined ? null : unwrapValue(item);
   }
   if (ArrayBuffer.isView(v)) return v;
   if (v instanceof Date) return v;
-  if (typeof v === "object" && "value" in (v as any)) {
+  if (typeof v === 'object' && 'value' in (v as any)) {
     const inner = (v as any).value;
     // Uuid: .value нормализуется в bigint, строка восстанавливается через toString()
     if (
-      typeof inner === "bigint" &&
-      "low128" in (v as any) &&
-      "high128" in (v as any)
+      typeof inner === 'bigint' &&
+      'low128' in (v as any) &&
+      'high128' in (v as any)
     ) {
       return (v as { toString(): string }).toString();
     }
@@ -64,7 +65,7 @@ function unwrapValue(v: unknown): unknown {
       );
     if (
       inner === null ||
-      ["string", "number", "bigint", "boolean"].includes(typeof inner)
+      ['string', 'number', 'bigint', 'boolean'].includes(typeof inner)
     ) {
       return inner;
     }
@@ -110,7 +111,7 @@ class FakeYdb {
           resolve: (value: any) => unknown,
           reject: (reason?: unknown) => unknown,
         ) => this.#run(sqlTemplate, params).then(resolve, reject),
-        [Symbol.toStringTag]: "Promise",
+        [Symbol.toStringTag]: 'Promise',
       } as any;
 
       return query as unknown as YdbExecutor extends infer T
@@ -134,7 +135,7 @@ class FakeYdb {
     sqlRaw: string,
     params: Record<string, unknown>,
   ): Record<string, any>[][] {
-    const sql = sqlRaw.replace(/\s+/g, " ").trim();
+    const sql = sqlRaw.replace(/\s+/g, ' ').trim();
     this.executed.push({ sql, params });
 
     const upsert = sql.match(
@@ -142,8 +143,8 @@ class FakeYdb {
     );
     if (upsert) {
       const [, table, colsRaw, valsRaw] = upsert;
-      const cols = colsRaw.split(",").map((c) => c.trim().replace(/`/g, ""));
-      const names = valsRaw.split(",").map((v) => v.trim().replace(/^\$/, ""));
+      const cols = colsRaw.split(',').map((c) => c.trim().replace(/`/g, ''));
+      const names = valsRaw.split(',').map((v) => v.trim().replace(/^\$/, ''));
       const row: Record<string, any> = {};
       cols.forEach((c, i) => {
         row[c] = params[names[i]];
@@ -172,7 +173,7 @@ class FakeYdb {
       for (const [, col, name] of setRaw.matchAll(/`(\w+)` = \$(\w+)/g)) {
         sets[col] = params[name];
       }
-      const conditions = this.#parseConditions(whereRaw ?? "", params);
+      const conditions = this.#parseConditions(whereRaw ?? '', params);
 
       for (const row of store.rows) {
         if (!this.#matches(row, conditions)) continue;
@@ -195,7 +196,7 @@ class FakeYdb {
       const store = this.#tables.get(table);
       if (!store) throw new Error(`FakeYdb: unknown table "${table}"`);
 
-      const conditions = this.#parseConditions(whereRaw ?? "", params);
+      const conditions = this.#parseConditions(whereRaw ?? '', params);
       let rows = store.rows.filter((r) => this.#matches(r, conditions));
       if (offsetRaw) rows = rows.slice(Number(offsetRaw));
       if (limitRaw) rows = rows.slice(0, Number(limitRaw));
@@ -211,13 +212,13 @@ class FakeYdb {
   ): Array<{ col: string; op: string; value: unknown }> {
     const out: Array<{ col: string; op: string; value: unknown }> = [];
     for (const [, col, name] of clause.matchAll(/`(\w+)` = \$(\w+)/g)) {
-      out.push({ col, op: "=", value: params[name] });
+      out.push({ col, op: '=', value: params[name] });
     }
     for (const [, col] of clause.matchAll(/`(\w+)` IS NOT NULL/g)) {
-      out.push({ col, op: "IS NOT NULL", value: undefined });
+      out.push({ col, op: 'IS NOT NULL', value: undefined });
     }
     for (const [, col] of clause.matchAll(/`(\w+)` IS NULL/g)) {
-      out.push({ col, op: "IS NULL", value: undefined });
+      out.push({ col, op: 'IS NULL', value: undefined });
     }
     return out;
   }
@@ -231,7 +232,7 @@ class FakeYdb {
     }>,
   ): boolean {
     return conditions.every(({ col, op, value }) => {
-      if (op === "=") {
+      if (op === '=') {
         const rv = row[col];
         const lv = value;
         if (rv instanceof Uint8Array && lv instanceof Uint8Array) {
@@ -239,8 +240,8 @@ class FakeYdb {
         }
         return String(rv) === String(lv);
       }
-      if (op === "IS NULL") return row[col] === null || row[col] === undefined;
-      if (op === "IS NOT NULL")
+      if (op === 'IS NULL') return row[col] === null || row[col] === undefined;
+      if (op === 'IS NOT NULL')
         return !(row[col] === null || row[col] === undefined);
       return false;
     });
@@ -252,7 +253,7 @@ class FakeYdb {
 // ─────────────────────────────────────────────────────────────
 
 function b64(s: string): string {
-  return Buffer.from(s, "utf8").toString("base64");
+  return Buffer.from(s, 'utf8').toString('base64');
 }
 
 function kmsJsonResponse(data: unknown, status = 200): Response {
@@ -290,41 +291,41 @@ function createMockKms(keyId: string) {
     (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
       const body = JSON.parse(init!.body as string);
       const urlText =
-        typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+        typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
       requests.push({ url: urlText, body });
 
-      if (urlText.includes(":encrypt")) {
-        const ciphertextB64 = randomBytes(48).toString("base64");
+      if (urlText.includes(':encrypt')) {
+        const ciphertextB64 = randomBytes(48).toString('base64');
         store.set(ciphertextB64, {
           plaintextB64: body.plaintext,
-          aadB64: body.aadContext ?? "",
+          aadB64: body.aadContext ?? '',
         });
         return Promise.resolve(
           kmsJsonResponse({
             keyId,
-            versionId: "v1",
+            versionId: 'v1',
             ciphertext: ciphertextB64,
           }),
         );
       }
 
-      if (urlText.includes(":decrypt")) {
+      if (urlText.includes(':decrypt')) {
         const record = store.get(body.ciphertext);
-        if (!record || record.aadB64 !== (body.aadContext ?? "")) {
+        if (!record || record.aadB64 !== (body.aadContext ?? '')) {
           return Promise.resolve(
-            kmsErrorResponse(400, "Invalid ciphertext or AAD mismatch"),
+            kmsErrorResponse(400, 'Invalid ciphertext or AAD mismatch'),
           );
         }
         return Promise.resolve(
           kmsJsonResponse({
             keyId,
-            versionId: "v1",
+            versionId: 'v1',
             plaintext: record.plaintextB64,
           }),
         );
       }
 
-      return Promise.resolve(kmsErrorResponse(404, "Not found"));
+      return Promise.resolve(kmsErrorResponse(404, 'Not found'));
     },
   );
 
@@ -335,9 +336,9 @@ function createMockKms(keyId: string) {
 // Тестовая сущность (@YdbSecurityAAD на PK — привязка шифротекста к строке)
 // ─────────────────────────────────────────────────────────────
 
-@YdbEntity("kms_pipeline_users")
+@YdbEntity('kms_pipeline_users')
 class PipelineUserEntity extends YdbBaseEntity {
-  @YdbPrimaryColumn("Uuid")
+  @YdbPrimaryColumn('Uuid')
   @YdbSecurityAAD()
   uuid!: string;
 
@@ -347,7 +348,7 @@ class PipelineUserEntity extends YdbBaseEntity {
   @YdbEncrypted({ blindIndex: false })
   notes!: string;
 
-  @YdbColumn("Utf8")
+  @YdbColumn('Utf8')
   plain!: string;
 }
 
@@ -356,7 +357,7 @@ class PipelineUserEntity extends YdbBaseEntity {
 // ─────────────────────────────────────────────────────────────
 
 const originalFetch = globalThis.fetch;
-const BI_KEY = Buffer.alloc(32, 7).toString("base64");
+const BI_KEY = Buffer.alloc(32, 7).toString('base64');
 
 let db: FakeYdb;
 let kms: ReturnType<typeof createMockKms>;
@@ -365,14 +366,13 @@ let bi: KmsBlindIndexProvider;
 
 beforeAll(() => {
   db = new FakeYdb();
-  db.registerTable("kms_pipeline_users", ["uuid"]);
-  kms = createMockKms("pipeline-key");
+  db.registerTable('kms_pipeline_users', ['uuid']);
+  kms = createMockKms('pipeline-key');
   globalThis.fetch = kms.fetchMock;
 
   enc = new KmsEncryptionProvider({
-    keyId: "pipeline-key",
-    auth_type: "iam_token",
-    authOptions: { iam_token: "test-token" },
+    keyId: 'pipeline-key',
+    auth: createAuth({ type: 'iam_token', token: 'test-token' }),
   });
   bi = new KmsBlindIndexProvider({ blindIndexKey: BI_KEY });
 
@@ -387,73 +387,73 @@ afterAll(() => {
   globalThis.fetch = originalFetch;
 });
 
-describe("ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)", () => {
-  it("save() stores raw Uint8Array ciphertext + blind index; find() decrypts", async () => {
+describe('ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)', () => {
+  it('save() stores raw Uint8Array ciphertext + blind index; find() decrypts', async () => {
     const user = new PipelineUserEntity();
-    user.email = "alice@example.com";
-    user.notes = "private note";
-    user.plain = "not encrypted";
+    user.email = 'alice@example.com';
+    user.notes = 'private note';
+    user.plain = 'not encrypted';
 
     await PipelineUserEntity.save(user);
     expect(user.uuid).toBeTruthy();
 
     // В «БД» — raw Bytes, а не base64-строка
-    const stored = db.rows("kms_pipeline_users")[0];
+    const stored = db.rows('kms_pipeline_users')[0];
     expect(stored.uuid).toBe(user.uuid);
     expect(stored.email).toBeInstanceOf(Uint8Array);
     expect(stored.notes).toBeInstanceOf(Uint8Array);
-    expect(Buffer.from(stored.email).toString("utf8")).not.toBe(
-      "alice@example.com",
+    expect(Buffer.from(stored.email).toString('utf8')).not.toBe(
+      'alice@example.com',
     );
-    expect(typeof stored.email_bi).toBe("string");
+    expect(typeof stored.email_bi).toBe('string');
 
     // Blind index совпадает с прямым вызовом провайдера
-    expect(stored.email_bi).toBe(await bi.hash("alice@example.com", {} as any));
+    expect(stored.email_bi).toBe(await bi.hash('alice@example.com', {} as any));
 
     // Чтение через ORM дешифрует
     const found = await PipelineUserEntity.find({ uuid: user.uuid });
     expect(found).not.toBeNull();
-    expect(found!.email).toBe("alice@example.com");
-    expect(found!.notes).toBe("private note");
-    expect(found!.plain).toBe("not encrypted");
+    expect(found!.email).toBe('alice@example.com');
+    expect(found!.notes).toBe('private note');
+    expect(found!.plain).toBe('not encrypted');
   });
 
-  it("find() by encrypted field goes through blind index", async () => {
+  it('find() by encrypted field goes through blind index', async () => {
     const user = new PipelineUserEntity();
-    user.email = "bob@example.com";
-    user.notes = "";
-    user.plain = "";
+    user.email = 'bob@example.com';
+    user.notes = '';
+    user.plain = '';
 
     await PipelineUserEntity.save(user);
 
     const found = await PipelineUserEntity.find({
-      email: "bob@example.com",
+      email: 'bob@example.com',
     });
     expect(found).not.toBeNull();
     expect(found!.uuid).toBe(user.uuid);
 
     // Другое значение не находится
     const miss = await PipelineUserEntity.find({
-      email: "other@example.com",
+      email: 'other@example.com',
     });
     expect(miss).toBeNull();
 
     // Поиск по зашифрованному полю без blind index запрещён ORM
     await expect(
-      PipelineUserEntity.find({ notes: "x" } as any),
+      PipelineUserEntity.find({ notes: 'x' } as any),
     ).rejects.toThrow(/blind index/i);
   });
 
-  it("AAD binding: KMS receives aadContext from @YdbSecurityAAD field", async () => {
+  it('AAD binding: KMS receives aadContext from @YdbSecurityAAD field', async () => {
     const user = new PipelineUserEntity();
-    user.email = "carol@example.com";
-    user.notes = "aad-note";
-    user.plain = "";
+    user.email = 'carol@example.com';
+    user.notes = 'aad-note';
+    user.plain = '';
 
     await PipelineUserEntity.save(user);
 
     const expectedAad = b64(`uuid=${user.uuid}`);
-    const encryptCalls = kms.requests.filter((r) => r.url.includes(":encrypt"));
+    const encryptCalls = kms.requests.filter((r) => r.url.includes(':encrypt'));
     const lastTwo = encryptCalls.slice(-2); // email + notes
     for (const call of lastTwo) {
       expect(call.body.aadContext).toBe(expectedAad);
@@ -461,106 +461,106 @@ describe("ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)", () =
 
     // Расшифровка с тем же AAD работает…
     const stored = db
-      .rows("kms_pipeline_users")
+      .rows('kms_pipeline_users')
       .find((r) => r.uuid === user.uuid)!;
     const decrypted = await enc.decrypt(stored.email, `uuid=${user.uuid}`, {
-      entityName: "PipelineUserEntity",
-      tableName: "kms_pipeline_users",
-      fieldName: "email",
+      entityName: 'PipelineUserEntity',
+      tableName: 'kms_pipeline_users',
+      fieldName: 'email',
       primaryKeyValue: user.uuid,
       aadFields: { uuid: user.uuid },
     });
-    expect(decrypted).toBe("carol@example.com");
+    expect(decrypted).toBe('carol@example.com');
 
     // …а с чужим AAD KMS отвергает ciphertext
     await expect(
-      enc.decrypt(stored.email, "uuid=00000000-0000-5000-8000-000000000000", {
-        entityName: "PipelineUserEntity",
-        tableName: "kms_pipeline_users",
-        fieldName: "email",
-        primaryKeyValue: "00000000-0000-5000-8000-000000000000",
+      enc.decrypt(stored.email, 'uuid=00000000-0000-5000-8000-000000000000', {
+        entityName: 'PipelineUserEntity',
+        tableName: 'kms_pipeline_users',
+        fieldName: 'email',
+        primaryKeyValue: '00000000-0000-5000-8000-000000000000',
         aadFields: {},
       }),
     ).rejects.toThrow(/KMS decrypt failed: 400/);
   });
 
-  it("encrypted updateBy(): re-encrypts, updates blind index, old value unsearchable", async () => {
+  it('encrypted updateBy(): re-encrypts, updates blind index, old value unsearchable', async () => {
     const user = new PipelineUserEntity();
-    user.email = "old@example.com";
-    user.notes = "old-notes";
-    user.plain = "";
+    user.email = 'old@example.com';
+    user.notes = 'old-notes';
+    user.plain = '';
 
     await PipelineUserEntity.save(user);
 
     const updated = await PipelineUserEntity.updateBy(
       { uuid: user.uuid },
-      { email: "new@example.com", notes: "new-notes" },
+      { email: 'new@example.com', notes: 'new-notes' },
     );
     expect(updated).toBe(1);
 
     // Шифротекст заменён на новый (Uint8Array)
     const stored = db
-      .rows("kms_pipeline_users")
+      .rows('kms_pipeline_users')
       .find((r) => r.uuid === user.uuid)!;
     expect(stored.email).toBeInstanceOf(Uint8Array);
 
     // Поиск по старому значению не находит, по новому — находит
-    const oldRow = await PipelineUserEntity.find({ email: "old@example.com" });
+    const oldRow = await PipelineUserEntity.find({ email: 'old@example.com' });
     expect(oldRow).toBeNull();
 
-    const newRow = await PipelineUserEntity.find({ email: "new@example.com" });
+    const newRow = await PipelineUserEntity.find({ email: 'new@example.com' });
     expect(newRow).not.toBeNull();
-    expect(newRow!.notes).toBe("new-notes");
-    expect(newRow!.email).toBe("new@example.com");
+    expect(newRow!.notes).toBe('new-notes');
+    expect(newRow!.email).toBe('new@example.com');
 
     // Blind index обновлён
-    expect(stored.email_bi).toBe(await bi.hash("new@example.com", {} as any));
+    expect(stored.email_bi).toBe(await bi.hash('new@example.com', {} as any));
   });
 
-  it("save() on existing row (update path) re-encrypts changed fields", async () => {
+  it('save() on existing row (update path) re-encrypts changed fields', async () => {
     const user = new PipelineUserEntity();
-    user.email = "update-path-old@example.com";
-    user.notes = "v1";
-    user.plain = "";
+    user.email = 'update-path-old@example.com';
+    user.notes = 'v1';
+    user.plain = '';
 
     await PipelineUserEntity.save(user);
 
     const emailBefore = db
-      .rows("kms_pipeline_users")
+      .rows('kms_pipeline_users')
       .find((r) => r.uuid === user.uuid)!.email;
 
-    user.email = "update-path-new@example.com";
-    user.notes = "v2";
+    user.email = 'update-path-new@example.com';
+    user.notes = 'v2';
     const saved = await PipelineUserEntity.save(user);
 
     expect(saved.uuid).toBe(user.uuid);
-    expect(saved.email).toBe("update-path-new@example.com");
+    expect(saved.email).toBe('update-path-new@example.com');
 
     const stored = db
-      .rows("kms_pipeline_users")
+      .rows('kms_pipeline_users')
       .find((r) => r.uuid === user.uuid)!;
     expect(
       Buffer.compare(Buffer.from(stored.email), Buffer.from(emailBefore)),
     ).not.toBe(0);
     expect(stored.email_bi).toBe(
-      await bi.hash("update-path-new@example.com", {} as any),
+      await bi.hash('update-path-new@example.com', {} as any),
     );
 
     const found = await PipelineUserEntity.find({ uuid: user.uuid });
-    expect(found!.email).toBe("update-path-new@example.com");
-    expect(found!.notes).toBe("v2");
+    expect(found!.email).toBe('update-path-new@example.com');
+    expect(found!.notes).toBe('v2');
   });
 
-  it("partial updateBy(): untouched encrypted fields keep ciphertext and blind index", async () => {
+  it('partial updateBy(): untouched encrypted fields keep ciphertext and blind index', async () => {
     const user = new PipelineUserEntity();
-    user.email = "partial@example.com";
-    user.notes = "notes-v1";
-    user.plain = "plain-v1";
+    user.email = 'partial@example.com';
+    user.notes = 'notes-v1';
+    user.plain = 'plain-v1';
 
     await PipelineUserEntity.save(user);
 
     const before = db
-      .rows("kms_pipeline_users")
+      .rows('kms_pipeline_users')
       .find((r) => r.uuid === user.uuid)!;
     const emailCtBefore = Buffer.from(before.email);
     const emailBiBefore = before.email_bi;
@@ -568,17 +568,17 @@ describe("ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)", () =
     // Меняем только notes — email не должен перешифровываться
     const updated = await PipelineUserEntity.updateBy(
       { uuid: user.uuid },
-      { notes: "notes-v2" },
+      { notes: 'notes-v2' },
     );
     expect(updated).toBe(1);
 
     const after = db
-      .rows("kms_pipeline_users")
+      .rows('kms_pipeline_users')
       .find((r) => r.uuid === user.uuid)!;
 
     expect(Buffer.compare(Buffer.from(after.email), emailCtBefore)).toBe(0);
     expect(after.email_bi).toBe(emailBiBefore);
-    expect(after.plain).toBe("plain-v1");
+    expect(after.plain).toBe('plain-v1');
     // notes объявлен с blindIndex: false → bi-колонки нет, но шифротекст обновлён
     expect(after.notes_bi).toBeUndefined();
     const decryptedNotes = await enc.decrypt(
@@ -586,23 +586,23 @@ describe("ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)", () =
       `uuid=${user.uuid}`,
       {} as any,
     );
-    expect(decryptedNotes).toBe("notes-v2");
+    expect(decryptedNotes).toBe('notes-v2');
 
     const found = await PipelineUserEntity.find({ uuid: user.uuid });
-    expect(found!.email).toBe("partial@example.com");
-    expect(found!.notes).toBe("notes-v2");
+    expect(found!.email).toBe('partial@example.com');
+    expect(found!.notes).toBe('notes-v2');
   });
 
-  it("corrupted ciphertext fails decryption (KMS rejects)", async () => {
+  it('corrupted ciphertext fails decryption (KMS rejects)', async () => {
     const user = new PipelineUserEntity();
-    user.email = "victim@example.com";
-    user.notes = "";
-    user.plain = "";
+    user.email = 'victim@example.com';
+    user.notes = '';
+    user.plain = '';
 
     await PipelineUserEntity.save(user);
 
     const stored = db
-      .rows("kms_pipeline_users")
+      .rows('kms_pipeline_users')
       .find((r) => r.uuid === user.uuid)!;
 
     // Побитая порча шифротекста → KMS возвращает ошибку, ORM не отдаёт мусор
@@ -614,16 +614,16 @@ describe("ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)", () =
     ).rejects.toThrow(/KMS decrypt failed/);
   });
 
-  it("roundtrip keeps binary-safe ciphertext (Uint8Array in → Uint8Array out)", async () => {
+  it('roundtrip keeps binary-safe ciphertext (Uint8Array in → Uint8Array out)', async () => {
     const user = new PipelineUserEntity();
-    user.email = "bin@example.com";
-    user.notes = "юникод 🌍 значение";
-    user.plain = "";
+    user.email = 'bin@example.com';
+    user.notes = 'юникод 🌍 значение';
+    user.plain = '';
 
     await PipelineUserEntity.save(user);
 
     const stored = db
-      .rows("kms_pipeline_users")
+      .rows('kms_pipeline_users')
       .find((r) => r.uuid === user.uuid)!;
 
     // ciphertext — произвольные бинарные данные, переживают base64-границу KMS
@@ -635,9 +635,9 @@ describe("ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)", () =
       `uuid=${user.uuid}`,
       {} as any,
     );
-    expect(decrypted).toBe("юникод 🌍 значение");
+    expect(decrypted).toBe('юникод 🌍 значение');
 
     const found = await PipelineUserEntity.find({ uuid: user.uuid });
-    expect(found!.notes).toBe("юникод 🌍 значение");
+    expect(found!.notes).toBe('юникод 🌍 значение');
   });
 });

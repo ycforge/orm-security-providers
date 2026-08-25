@@ -20,6 +20,7 @@ import {
   YdbPrimaryColumn,
   YdbSecurityAAD,
 } from '@ycforge/ydb-orm';
+import { createAuth, authKeyFromFile } from '@ycforge/auth';
 import { KmsEncryptionProvider } from '../src/yandex-kms/kms-encryption-provider.js';
 import { KmsBlindIndexProvider } from '../src/hmac-bi/hmac-blind-index-provider.js';
 
@@ -43,28 +44,18 @@ class UserEntity extends YdbBaseEntity {
   name!: string;
 }
 
-const moduleOptions = {
-  endpoint: process.env.YDB_ENDPOINT!,
-  auth_type: (process.env.YDB_AUTH_TYPE ?? 'auth_key') as
-    | 'meta'
-    | 'auth_key'
-    | 'anonymous',
-  authOptions: {
-    authorized_key_path: process.env.YDB_AUTHORIZED_KEY_PATH!,
-  },
-};
+const auth = createAuth(
+  authKeyFromFile(process.env.YDB_AUTHORIZED_KEY_PATH!),
+);
 
-const driver = await createDriver(moduleOptions);
-const executor = createExecutor(driver, moduleOptions);
+const driver = await createDriver({ endpoint: process.env.YDB_ENDPOINT!, auth });
+const executor = createExecutor(driver, { endpoint: process.env.YDB_ENDPOINT!, auth });
 
 configureEntities([UserEntity], {
   executor,
   encryptionProvider: new KmsEncryptionProvider({
     keyId: process.env.KMS_KEY_ID!,
-    auth_type: 'auth_key',
-    authOptions: {
-      authorized_key_path: process.env.KMS_AUTHORIZED_KEY_PATH!,
-    },
+    auth,
   }),
   blindIndexProvider: new KmsBlindIndexProvider({
     blindIndexKey: process.env.KMS_BLIND_INDEX_KEY!,

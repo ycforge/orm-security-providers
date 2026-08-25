@@ -6,14 +6,13 @@
 
 | Subpath | Что внутри |
 |---------|-----------|
-| `@ycforge/orm-security-providers/yandex-kms` | `KmsEncryptionProvider`, `IamTokenManager` (Yandex Cloud KMS SymmetricCrypto REST API) |
+| `@ycforge/orm-security-providers/yandex-kms` | `KmsEncryptionProvider` (Yandex Cloud KMS SymmetricCrypto REST API) |
 | `@ycforge/orm-security-providers/hmac-bi` | `KmsBlindIndexProvider` (HMAC-SHA256, ключ в памяти) |
 | `@ycforge/orm-security-providers` | Ре-экспорт всего (обратная совместимость) |
 
 ## Структура
 
 - `src/yandex-kms/kms-encryption-provider.ts` — `KmsEncryptionProvider` (encrypt/decrypt через `https://kms.yandex/kms/v1/keys/{id}:encrypt|decrypt`). Контракт ORM v0.2+: наружу raw `Uint8Array`, base64 только на границе KMS REST API.
-- `src/yandex-kms/iam-token-manager.ts` — `IamTokenManager` (3 режима: `meta`, `auth_key`, `iam_token`).
 - `src/hmac-bi/hmac-blind-index-provider.ts` — `KmsBlindIndexProvider` (HMAC-SHA256, ключ хранится в памяти).
 - `src/__tests__/` — Jest 30, ESM, `--experimental-vm-modules`. `setup.ts` загружает `.env` через `dotenv`. `orm-pipeline.spec.ts` гоняет реальный интерфейс `@ycforge/ydb-orm` (configureEntities + декораторы) поверх in-memory YDB-эмуляции и мока KMS.
 
@@ -41,11 +40,23 @@
 
 ## Авторизация
 
-| Режим | Описание | Опции |
-|-------|----------|-------|
-| `meta` | Метаданные VM (только внутри Yandex Cloud) | — |
-| `auth_key` | JWT сервисного аккаунта → IAM-токен | `authorized_key_path` |
-| `iam_token` | Готовый IAM-токен (без обновления; срок не выдумывается — валидность определяет сервер, опционально `iam_token_expires_at`) | `iam_token`, `iam_token_expires_at?` |
+Провайдер больше не знает о способах авторизации. В `KmsEncryptionProvider`
+передаётся готовый `AuthManager` из **@ycforge/auth**
+(`file:../ycforge-auth` при локальной разработке, `^0.1.0` в публикации).
+Токен запрашивается с usage `'ycloud'` — стратегии `anonymous`/`access_token`/`static`
+отклоняются с `UnsupportedAuthMethodError`.
+
+```ts
+import { createAuth, authKeyFromFile } from '@ycforge/auth';
+
+const auth = createAuth(authKeyFromFile('./authorized_key.json'));
+new KmsEncryptionProvider({ keyId: 'aby...', auth });
+```
+
+Поддерживаемые стратегии `createAuth` для KMS:
+- `{ type: 'metadata' }` — метаданные VM (только внутри Yandex Cloud);
+- `authKeyFromFile(path)` — JWT сервисного аккаунта → IAM-токен;
+- `{ type: 'iam_token', token, expiresAt? }` — готовый IAM-токен.
 
 Для `auth_key` нужны права `kms.keys.encrypterDecrypter` на ключ.
 
