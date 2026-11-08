@@ -1,3 +1,4 @@
+import { encryptionAad } from '../common/context.js';
 import { jest } from '@jest/globals';
 import {
   createAuth,
@@ -77,9 +78,9 @@ describe('KmsEncryptionProvider', () => {
     });
 
     it('throws when auth is not provided', () => {
-      expect(() => new KmsEncryptionProvider({ keyId: 'aby123key' })).toThrow(
-        /auth \(AuthManager\) is required/,
-      );
+      expect(
+        () => new KmsEncryptionProvider({ keyId: 'aby123key' } as never),
+      ).toThrow(/auth \(AuthManager\) is required/);
     });
 
     it('encrypts using a token from the AuthManager', async () => {
@@ -195,7 +196,11 @@ describe('KmsEncryptionProvider', () => {
       expect(body.plaintext).toBe(
         Buffer.from('hello world', 'utf8').toString('base64'),
       );
-      expect(body.aadContext).toBeUndefined();
+      expect(body.aadContext).toBe(
+        Buffer.from(encryptionAad('', defaultContext, 'default')).toString(
+          'base64',
+        ),
+      );
     });
 
     it('includes aadContext when AAD is provided', async () => {
@@ -217,7 +222,10 @@ describe('KmsEncryptionProvider', () => {
           .body as string,
       );
       expect(body.aadContext).toBe(
-        Buffer.from('org=Acme', 'utf8').toString('base64'),
+        Buffer.from(
+          encryptionAad('org=Acme', defaultContext, 'default'),
+          'utf8',
+        ).toString('base64'),
       );
     });
 
@@ -286,7 +294,11 @@ describe('KmsEncryptionProvider', () => {
       expect(body.ciphertext).toBe(
         Buffer.from('base64-ciphertext-source', 'utf8').toString('base64'),
       );
-      expect(body.aadContext).toBeUndefined();
+      expect(body.aadContext).toBe(
+        Buffer.from(encryptionAad('', defaultContext, 'default')).toString(
+          'base64',
+        ),
+      );
     });
 
     it('includes aadContext when AAD is provided', async () => {
@@ -312,7 +324,10 @@ describe('KmsEncryptionProvider', () => {
           .body as string,
       );
       expect(body.aadContext).toBe(
-        Buffer.from('org=Acme', 'utf8').toString('base64'),
+        Buffer.from(
+          encryptionAad('org=Acme', defaultContext, 'default'),
+          'utf8',
+        ).toString('base64'),
       );
     });
 

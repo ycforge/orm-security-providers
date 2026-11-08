@@ -1,3 +1,4 @@
+import { blindIndexMessage, validateDomain } from '../common/context.js';
 import { createHmac } from 'node:crypto';
 import type {
   YdbBlindIndexProvider,
@@ -18,6 +19,8 @@ export interface KmsBlindIndexProviderOptions {
    * blind index используется HMAC-SHA256 с отдельным ключом.
    */
   blindIndexKey: string;
+  /** Stable application/database domain. */
+  domain?: string;
 }
 
 const BASE64_ALPHABET_RE = /^[A-Za-z0-9+/]*={0,2}$/;
@@ -67,12 +70,14 @@ function decodeCanonicalBase64(input: string): Buffer {
  */
 export class KmsBlindIndexProvider implements YdbBlindIndexProvider {
   readonly #key: Buffer;
+  readonly #domain: string;
 
   constructor(options: KmsBlindIndexProviderOptions) {
     if (!options.blindIndexKey) {
       throw new Error('blindIndexKey is required');
     }
 
+    this.#domain = validateDomain(options.domain ?? 'default');
     this.#key = decodeCanonicalBase64(options.blindIndexKey);
 
     if (this.#key.length < 32) {
@@ -82,9 +87,11 @@ export class KmsBlindIndexProvider implements YdbBlindIndexProvider {
     }
   }
 
-  hash(plaintext: string, _context: YdbEncryptionContext): Promise<string> {
-    return Promise.resolve(
-      createHmac('sha256', this.#key).update(plaintext).digest('base64'),
+  hash(plaintext: string, context: YdbEncryptionContext): Promise<string> {
+    return Promise.resolve().then(() =>
+      createHmac('sha256', this.#key)
+        .update(blindIndexMessage(plaintext, context, this.#domain))
+        .digest('base64'),
     );
   }
 }

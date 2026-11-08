@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createAuth } from '@ycforge/auth';
 import { KmsEncryptionProvider } from '../yandex-kms/kms-encryption-provider.js';
 import { KmsBlindIndexProvider } from '../hmac-bi/hmac-blind-index-provider.js';
@@ -115,7 +115,9 @@ describe('E2E: KMS encrypt → decrypt roundtrip (mocked)', () => {
     globalThis.fetch = jest.fn(
       (_url: string | URL | Request, init?: RequestInit) => {
         const body = JSON.parse(init!.body as string);
-        const aadSeed = Buffer.from(body.aadContext ?? '', 'base64');
+        const aadSeed = createHash('sha256')
+          .update(Buffer.from(body.aadContext ?? '', 'base64'))
+          .digest();
         const ciphertext = Buffer.from(
           Array.from(
             { length: 48 },
@@ -157,12 +159,14 @@ describe('E2E: KMS encrypt → decrypt roundtrip (mocked)', () => {
       entityName: 'UserEntity',
       tableName: 'users',
       fieldName: 'email',
+      primaryKeyValue: 'one',
       aadFields: {},
     };
     const phoneCtx: YdbEncryptionContext = {
       entityName: 'UserEntity',
       tableName: 'users',
       fieldName: 'phone',
+      primaryKeyValue: 'one',
       aadFields: {},
     };
 
