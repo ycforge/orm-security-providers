@@ -1,3 +1,4 @@
+import { encryptionAad } from '../common/context.js';
 /**
  * Интеграционные тесты с реальным интерфейсом @ycforge/ydb-orm.
  *
@@ -17,6 +18,9 @@ import { jest } from '@jest/globals';
 import { createAuth } from '@ycforge/auth';
 import {
   configureEntities,
+  buildAad,
+  getYdbEntityMetadata,
+  getOrCreateRepository,
   YdbBaseEntity,
   YdbColumn,
   YdbEncrypted,
@@ -387,6 +391,22 @@ afterAll(() => {
   globalThis.fetch = originalFetch;
 });
 
+function userContext(uuid: string, fieldName: string) {
+  const meta = getYdbEntityMetadata(PipelineUserEntity)!;
+  return {
+    entityName: 'PipelineUserEntity',
+    tableName: 'kms_pipeline_users',
+    fieldName,
+    primaryKeyValue: getOrCreateRepository(
+      PipelineUserEntity,
+    ).persistence.pkValueForContext(meta, { uuid }),
+    aadFields: { uuid },
+  };
+}
+function userAad(uuid: string) {
+  return buildAad(['uuid'], () => uuid);
+}
+
 describe('ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)', () => {
   it('save() stores raw Uint8Array ciphertext + blind index; find() decrypts', async () => {
     const user = new PipelineUserEntity();
@@ -408,7 +428,9 @@ describe('ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)', () =
     expect(typeof stored.email_bi).toBe('string');
 
     // Blind index совпадает с прямым вызовом провайдера
-    expect(stored.email_bi).toBe(await bi.hash('alice@example.com', {} as any));
+    expect(stored.email_bi).toBe(
+      await bi.hash('alice@example.com', userContext(user.uuid, 'email')),
+    );
 
     // Чтение через ORM дешифрует
     const found = await PipelineUserEntity.find({ uuid: user.uuid });
@@ -452,35 +474,36 @@ describe('ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)', () =
 
     await PipelineUserEntity.save(user);
 
-    const expectedAad = b64(`uuid=${user.uuid}`);
-    const encryptCalls = kms.requests.filter((r) => r.url.includes(':encrypt'));
-    const lastTwo = encryptCalls.slice(-2); // email + notes
-    for (const call of lastTwo) {
-      expect(call.body.aadContext).toBe(expectedAad);
+    const encryptCalls = kms.requests
+      .filter((r) => r.url.includes(':encrypt'))
+      .slice(-2);
+    for (const [index, field] of ['email', 'notes'].entries()) {
+      expect(encryptCalls[index].body.aadContext).toBe(
+        b64(
+          encryptionAad(
+            userAad(user.uuid),
+            userContext(user.uuid, field),
+            'default',
+          ),
+        ),
+      );
     }
-
-    // Расшифровка с тем же AAD работает…
     const stored = db
       .rows('kms_pipeline_users')
-      .find((r) => r.uuid === user.uuid)!;
-    const decrypted = await enc.decrypt(stored.email, `uuid=${user.uuid}`, {
-      entityName: 'PipelineUserEntity',
-      tableName: 'kms_pipeline_users',
-      fieldName: 'email',
-      primaryKeyValue: user.uuid,
-      aadFields: { uuid: user.uuid },
-    });
-    expect(decrypted).toBe('carol@example.com');
-
-    // …а с чужим AAD KMS отвергает ciphertext
+      .find((row) => row.uuid === user.uuid)!;
     await expect(
-      enc.decrypt(stored.email, 'uuid=00000000-0000-5000-8000-000000000000', {
-        entityName: 'PipelineUserEntity',
-        tableName: 'kms_pipeline_users',
-        fieldName: 'email',
-        primaryKeyValue: '00000000-0000-5000-8000-000000000000',
-        aadFields: {},
-      }),
+      enc.decrypt(
+        stored.email,
+        userAad(user.uuid),
+        userContext(user.uuid, 'email'),
+      ),
+    ).resolves.toBe('carol@example.com');
+    await expect(
+      enc.decrypt(
+        stored.email,
+        userAad(user.uuid),
+        userContext('00000000-0000-5000-8000-000000000000', 'email'),
+      ),
     ).rejects.toThrow(/KMS decrypt failed: 400/);
   });
 
@@ -514,7 +537,9 @@ describe('ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)', () =
     expect(newRow!.email).toBe('new@example.com');
 
     // Blind index обновлён
-    expect(stored.email_bi).toBe(await bi.hash('new@example.com', {} as any));
+    expect(stored.email_bi).toBe(
+      await bi.hash('new@example.com', userContext(user.uuid, 'email')),
+    );
   });
 
   it('save() on existing row (update path) re-encrypts changed fields', async () => {
@@ -543,7 +568,10 @@ describe('ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)', () =
       Buffer.compare(Buffer.from(stored.email), Buffer.from(emailBefore)),
     ).not.toBe(0);
     expect(stored.email_bi).toBe(
-      await bi.hash('update-path-new@example.com', {} as any),
+      await bi.hash(
+        'update-path-new@example.com',
+        userContext(user.uuid, 'email'),
+      ),
     );
 
     const found = await PipelineUserEntity.find({ uuid: user.uuid });
@@ -583,8 +611,8 @@ describe('ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)', () =
     expect(after.notes_bi).toBeUndefined();
     const decryptedNotes = await enc.decrypt(
       after.notes,
-      `uuid=${user.uuid}`,
-      {} as any,
+      userAad(user.uuid),
+      userContext(user.uuid, 'notes'),
     );
     expect(decryptedNotes).toBe('notes-v2');
 
@@ -610,7 +638,11 @@ describe('ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)', () =
     corrupted[0] ^= 0xff;
 
     await expect(
-      enc.decrypt(corrupted, `uuid=${user.uuid}`, {} as any),
+      enc.decrypt(
+        corrupted,
+        userAad(user.uuid),
+        userContext(user.uuid, 'email'),
+      ),
     ).rejects.toThrow(/KMS decrypt failed/);
   });
 
@@ -632,8 +664,8 @@ describe('ORM pipeline × KMS providers (real @ycforge/ydb-orm interface)', () =
 
     const decrypted = await enc.decrypt(
       stored.notes,
-      `uuid=${user.uuid}`,
-      {} as any,
+      userAad(user.uuid),
+      userContext(user.uuid, 'notes'),
     );
     expect(decrypted).toBe('юникод 🌍 значение');
 

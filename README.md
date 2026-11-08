@@ -1,6 +1,6 @@
 # @ycforge/orm-security-providers
 
-Encryption & blind-index providers for [@ycforge/ydb-orm](https://github.com/ycforge/ydb-orm) **v0.2+**.
+Encryption & blind-index providers for [@ycforge/ydb-orm](https://github.com/ycforge/ydb-orm) **v1+**.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](nodejs.org)
@@ -14,7 +14,7 @@ npm install @ycforge/orm-security-providers @ycforge/ydb-orm
 yarn add @ycforge/orm-security-providers @ycforge/ydb-orm
 ```
 
-> Требует `@ycforge/ydb-orm >= 0.2.0-beta.0 < 0.3.0`: шифротекст хранится в YDB-колонке
+> Требует `@ycforge/ydb-orm >= 1.0.0 < 2.0.0`: шифротекст хранится в YDB-колонке
 > `Bytes` как raw `Uint8Array` (без base64). Base64 используется только
 > на границе с KMS REST API.
 
@@ -42,7 +42,7 @@ import { KmsEncryptionProvider, KmsBlindIndexProvider } from '@ycforge/orm-secur
 
 ```ts
 import { Module } from '@nestjs/common';
-import { YdbCoreModule, YdbModule } from '@ycforge/ydb-orm';
+import { YdbCoreModule, YdbOrmModule } from '@ycforge/ydb-orm/nest';
 import { YcAuthModule, InjectAuth } from '@ycforge/auth/nestjs';
 import { createAuth, authKeyFromFile } from '@ycforge/auth';
 import { KmsEncryptionProvider } from '@ycforge/orm-security-providers/yandex-kms';
@@ -68,7 +68,7 @@ import { KmsBlindIndexProvider } from '@ycforge/orm-security-providers/hmac-bi';
       }),
       inject: [InjectAuth()],
     }),
-    YdbModule.forFeature([UserEntity]),
+    YdbOrmModule.forFeature([UserEntity]),
   ],
 })
 export class AppModule {}
@@ -94,7 +94,7 @@ configureEntities([UserEntity], {
 });
 ```
 
-## Contract (ydb-orm v0.2+)
+## Contract (ydb-orm v1+)
 
 ```ts
 interface YdbEncryptionProvider {
@@ -114,6 +114,9 @@ ORM кладёт его в колонку `Bytes` без перекодиров�
 ## `@ycforge/orm-security-providers/yandex-kms`
 
 ### KmsEncryptionProvider
+
+`domain?: string` — стабильный домен приложения/БД (по умолчанию `default`).
+При общем KMS-ключе для нескольких БД задавайте разные домены.
 
 ```ts
 new KmsEncryptionProvider(options: KmsEncryptionProviderOptions)
@@ -212,6 +215,8 @@ const auth = createAuth({
 
 ### KmsBlindIndexProvider
 
+`domain?: string` — стабильный домен приложения/БД (по умолчанию `default`).
+
 ```ts
 new KmsBlindIndexProvider(options: KmsBlindIndexProviderOptions)
 ```
@@ -226,7 +231,7 @@ Method:
 hash(plaintext: string, context: YdbEncryptionContext): Promise<string>
 ```
 
-Returns deterministic base64 HMAC-SHA256 (44 characters). Context is accepted but ignored — the hash depends only on the key and value.
+Returns deterministic base64 HMAC-SHA256 (44 characters). HMAC authenticates a canonical tuple of domain, tableName, fieldName and plaintext. primaryKeyValue and entityName do not affect the index, so lookup remains possible without knowing a row PK.
 
 Generate a key:
 
@@ -339,3 +344,38 @@ examples/
 ## License
 
 MIT © [ycforge](https://github.com/ycforge)
+
+## Аутентифицируемая привязка (новый beta-формат)
+
+KMS всегда получает AAD как канонический JSON tuple:
+`["ycforge:encryption:v1", domain, tableName, fieldName, primaryKeyValue, aad]`.
+Даже пустой явный aad не отключает защиту расположения ciphertext. Все три
+поля контекста обязательны и проверяются до получения токена и вызова сети.
+Перестановка ciphertext между полями, таблицами или PK отвергается KMS.
+`entityName` намеренно не участвует: переименование TS-класса не меняет данные.
+
+Blind index — HMAC-SHA256 от
+`["ycforge:blind-index:v1", domain, tableName, fieldName, plaintext]`.
+Он стабилен внутри поля, но не связывает одинаковый plaintext в разных
+таблицах/полях/доменах. Равенство и частотность внутри одного домена поля
+по-прежнему видны владельцу дампа — это свойство поискового индекса. PK в HMAC
+не входит: иначе фильтр по зашифрованному значению не работал бы без знания PK.
+
+Для ORM нужны исправления канонического полного PK, проекций и lazy binding из
+согласованного обновления ydb-orm. В том обновлении PK передаётся как
+`["pk:v1", [[имя, тип YDB, значение], ...]]`. Выпускайте обновление ORM до
+провайдеров; опубликованный peer range описывает TypeScript API v1, а не
+наличие этих исправлений в старом релизе 1.0.0.
+
+Формат ciphertext AAD и blind indexes изменён без обратной совместимости:
+пакет пока beta и боевых данных нет. Старые значения не принимаются через
+fallback; re-encryption/re-index migration здесь не добавляется.
+
+`aadOverride` не отключает привязку к расположению. В ORM зашифрованный updateBy
+теперь требует равенства полного PK; для bulk-операций шифруйте каждую строку
+отдельно. Перед сменой PK/AAD lazy-поле нужно явно расшифровать; сохранение
+исходного ciphertext под новым контекстом запрещено.
+
+Проверки защищённости используют настоящий локальный AES-256-GCM за моком
+REST KMS, а не сравнение plaintext. Integration suite с настоящим облачным
+KMS по-прежнему требует отдельные credentials и автоматически не запускается.

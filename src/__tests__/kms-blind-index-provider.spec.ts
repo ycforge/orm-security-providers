@@ -121,7 +121,7 @@ describe('KmsBlindIndexProvider', () => {
       expect(h1).not.toBe(h2);
     });
 
-    it('ignores context parameter', async () => {
+    it('separates different table/field contexts', async () => {
       const ctx1: YdbEncryptionContext = {
         entityName: 'UserEntity',
         tableName: 'users',
@@ -140,7 +140,7 @@ describe('KmsBlindIndexProvider', () => {
       const h1 = await provider.hash('same-value', ctx1);
       const h2 = await provider.hash('same-value', ctx2);
 
-      expect(h1).toBe(h2);
+      expect(h1).not.toBe(h2);
     });
 
     it('produces different hashes with different keys', async () => {
@@ -172,9 +172,9 @@ describe('KmsBlindIndexProvider', () => {
     // по base64-декодированному ключу — проверяют, что это именно
     // HMAC-SHA256(key=base64decode(blindIndexKey)), а не что-то другое.
     it.each([
-      ['alice@example.com', 'hBJA0qW2ZUs64h/ESZ23t4Zwd83WfD4WzvH5hD4n0fo='],
-      ['', 'eWzTB4rxRjZ1PSaztVVUIv9Vo+Jhz4R7SOlTcbm9CqI='],
-      ['Привет 🌍', 'hXl70PFlH0kifuhCLTCko0NZdhSgOtcYGuhnXxygv00='],
+      ['alice@example.com', 'bvQYAjbZZnCkqaGIcEq2MZT5QgALcTPBeUEVeVsbRxo='],
+      ['', 'HFXJlTJjVdQwnUMOR/Lh71H/WgyZZPpc2MgSTMvoNUQ='],
+      ['Привет 🌍', 'BR5cVsN5KOffmQdObg2ZESOgq8VQ4RdAcZR7UsL3+J4='],
     ])('matches reference HMAC-SHA256 for %j', async (plaintext, expected) => {
       const key = Buffer.from(
         '0123456789abcdef0123456789abcdef',
@@ -184,13 +184,12 @@ describe('KmsBlindIndexProvider', () => {
       expect(await p.hash(plaintext, defaultContext)).toBe(expected);
     });
 
-    it('treats equal plaintexts as equal indexes regardless of context/entity', async () => {
+    it('rejects a missing searchable context', async () => {
       const h = await provider.hash('equal@example.com', defaultContext);
-      const h2 = await provider.hash(
-        'equal@example.com',
-        {} as YdbEncryptionContext,
-      );
-      expect(h).toBe(h2);
+      expect(h).toHaveLength(44);
+      await expect(
+        provider.hash('equal@example.com', {} as YdbEncryptionContext),
+      ).rejects.toThrow('context.tableName');
     });
   });
 });

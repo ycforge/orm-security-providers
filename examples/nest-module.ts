@@ -9,13 +9,13 @@
 import { Module } from '@nestjs/common';
 import {
   YdbCoreModule,
-  YdbModule,
+  YdbOrmModule,
   YdbBaseEntity,
   YdbEntity,
   YdbPrimaryColumn,
   YdbColumn,
   YdbEncrypted,
-} from '@ycforge/ydb-orm';
+} from '@ycforge/ydb-orm/nest';
 import { YcAuthModule, InjectAuth } from '@ycforge/auth/nestjs';
 import { authKeyFromFile } from '@ycforge/auth';
 import { KmsEncryptionProvider } from '@ycforge/orm-security-providers/yandex-kms';
@@ -53,7 +53,7 @@ export class UserEntity extends YdbBaseEntity {
       }),
       inject: [InjectAuth()],
     }),
-    YdbModule.forFeature([UserEntity]),
+    YdbOrmModule.forFeature([UserEntity]),
   ],
 })
 export class AppModule {}
